@@ -79,6 +79,12 @@ typedef struct {
     uint16_t timer_ticks;
 } bomb_t;
 
+typedef struct {
+    uint8_t height;
+    uint8_t width;
+    uint8_t *cells;
+} GameMap;
+
 
 static inline uint16_t make_cell_index(
                         uint16_t row, 
