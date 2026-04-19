@@ -7,6 +7,9 @@
 #include <unistd.h>
 #include <string.h>
 
+#include <sys/socket.h>
+#include <arpa/inet.h>  
+
 #include "../config.h"
 #include "../msg_protocol.h"
 
@@ -24,7 +27,7 @@ WINDOW *TERMINAL_WIN = NULL, *SIDEBAR_WIN = NULL, *MAP_WIN = NULL;
 volatile sig_atomic_t resized = 1; /* 1 to enter loop on start */
 uint8_t BLOCK_SIZE;
 
-
+int CLIENT_FD; /* global client socket file descriptor for sending messages to server */
 
 typedef struct {
     uint16_t width;
@@ -34,6 +37,7 @@ typedef struct {
 
 GameMap GAME_MAP;
 
+void handle_user_input();
 void draw_game_board();
 void resize_game_board();
 
@@ -80,10 +84,40 @@ int main() {
     // getchar(); /* wait for input before starting ncurses */
     /* -----------------test-input-------------------- */
 
+
+    /* connect to server */
+    struct sockaddr_in server_addr;  
+
+    CLIENT_FD = socket(AF_INET, SOCK_STREAM, 0);  
+    if (CLIENT_FD == -1) {  
+        perror("Socket creation failed");  
+        return EXIT_FAILURE;  
+    }
+
+    server_addr.sin_family = AF_INET;  
+    server_addr.sin_port = htons(SERVER_PORT);  
+    inet_pton(AF_INET, "127.0.0.1", &server_addr.sin_addr);  
+
+    if (connect(CLIENT_FD, (struct sockaddr*)&server_addr, sizeof(server_addr)) == -1) {  
+        perror("Connection failed");  
+        return EXIT_FAILURE;  
+    }  
+    printf("Server connection successful\n");  
+
+    // /* send test data */
+    // send(CLIENT_FD, "Hello, Server!", 14, 0);
+    // send(CLIENT_FD, "Ping", 4, 0);
+    // send(CLIENT_FD, "Test message 1", 14, 0);
+    // send(CLIENT_FD, "How are you?", 12, 0);
+    // send(CLIENT_FD, "1234567890", 10, 0);
+
+    
     initscr();
     cbreak();       /* disables line buffering */
     noecho();       /* don't echo user input back */
     curs_set(0);    /* hides cursor */
+    nodelay(stdscr, TRUE);  /* make getch non-blocking */
+    keypad(stdscr, TRUE);   /* enable arrow keys and function keys */
     TERMINAL_WIN = newwin(LINES, COLS, 0, 0);
 
 
@@ -95,7 +129,11 @@ int main() {
             resized = 0;
         }
 
+        int ch = getch();
+        handle_user_input(ch);
+
         draw_game_board();
+
         usleep(1000000 / TICKS_PER_SECOND); /* 1e6 for microseconds */
     }
 
@@ -107,6 +145,30 @@ int main() {
 
 
 /* -------------------------- function declarations --------------------------- */
+
+void handle_movement_input(int ch) {
+    uint8_t direction;
+    if (ch == KEY_UP)    { direction = 'U'; }
+    if (ch == KEY_DOWN)  { direction = 'D'; }
+    if (ch == KEY_LEFT)  { direction = 'L'; }
+    if (ch == KEY_RIGHT) { direction = 'R'; }
+    
+    /* TODO: wrap this in the generic message struct later */
+    /* send movement attempt to server */
+    msg_move_attempt_t move_msg = { .direction = direction };
+    send(CLIENT_FD, &move_msg, sizeof(move_msg), 0);
+}
+
+void handle_user_input(int ch) {
+    if (ch != ERR) {
+        if (ch == KEY_UP   || ch == KEY_DOWN 
+         || ch == KEY_LEFT || ch == KEY_RIGHT) {
+            handle_movement_input(ch);
+        }
+        if (ch == ' ')       { /* space - place bomb */ }
+        if (ch == 27)        { /* ESC */ exit(1); }
+    }
+}
 
 void resize_game_board() {
     BLOCK_SIZE = MAX_BLOCK_SIZE; /* reset block size to max on each resize */
