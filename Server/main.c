@@ -2,21 +2,25 @@
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
-// #include <fcntl.h>
+#include <fcntl.h>
 #include <unistd.h>
 #include <string.h>
 
 #include <sys/socket.h>
 #include <arpa/inet.h>
 
+#include "../net.h"
 #include "../config.h"
 #include "../msg_protocol.h"
 
+GameMap GAME_MAP;
+int CLIENT_FD;
+
+ssize_t send_all(int fd, const void *buf, size_t len);
 
 int main() {  
-    int server_fd, client_fd;  
+    int server_fd;  
     struct sockaddr_in server_addr, client_addr;  
-    char buffer[1024] = {0};  
 
     server_fd = socket(AF_INET, SOCK_STREAM, 0);  
     if (server_fd == -1) {  
@@ -37,19 +41,53 @@ int main() {
     printf("Server listening on port 6969\n");  
 
     socklen_t addr_len = sizeof(client_addr);  
-    client_fd = accept(server_fd, (struct sockaddr*)&client_addr, &addr_len);  
-    if (client_fd < 0) {  
+    CLIENT_FD = accept(server_fd, (struct sockaddr*)&client_addr, &addr_len);  
+    if (CLIENT_FD < 0) {  
         perror("Accept failed");  
         return EXIT_FAILURE;  
     }  
 
     printf("Client connected\n");  
+    /* -----------------test-input-map-------------------- */
+    uint8_t height, width, c;
+    FILE *fp = fopen("maps/test_map_1.txt", "r");
+    if (!fp) return 1;
+
+    fscanf(fp, "%hhd %hhd", &height, &width);
+
+    /* skip 4 characters while testing */
+    for (int i = 0; i < 4; i++) {
+        fscanf(fp, " %c", &c);
+    }
+
+    char *map_data = malloc(height * width + 1);
+
+    for (int i = 0; i < height * width; i++)
+        fscanf(fp, " %c", &map_data[i]);
+    map_data[height * width] ='\0';
+
+    fclose(fp);
+
+    GAME_MAP.width = width;
+    GAME_MAP.height = height;
+    GAME_MAP.cells = (uint8_t*)map_data; 
+    /* -----------------test-input-map-------------------- */
+    /* send out the map data */
+    uint8_t header[2];
+    header[0] = height;
+    header[1] = width;
+
+    send_all(CLIENT_FD, header, 2);
+
+    size_t size = (size_t)height * (size_t)width;
+    send_all(CLIENT_FD, map_data, size);
+
 
     /* ------------------ main loop ------------------ */
     while (1) {  
         msg_move_attempt_t msg;
 
-        ssize_t bytes_read = recv(client_fd, &msg, sizeof(msg), MSG_WAITALL);
+        ssize_t bytes_read = recv(CLIENT_FD, &msg, sizeof(msg), MSG_WAITALL);
         if (bytes_read <= 0) {
             printf("Client disconnected\n");
             break;
@@ -62,3 +100,7 @@ int main() {
 
     return 0;  
 }
+
+
+/* -------------------------- function declarations --------------------------- */
+

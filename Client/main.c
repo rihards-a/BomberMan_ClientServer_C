@@ -3,13 +3,13 @@
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
-#include <fcntl.h>
 #include <unistd.h>
 #include <string.h>
 
 #include <sys/socket.h>
 #include <arpa/inet.h>  
 
+#include "../net.h"
 #include "../config.h"
 #include "../msg_protocol.h"
 
@@ -24,67 +24,22 @@
 #define SIDE_BAR_HEIGHT 1 + 8 + 2 + 1 + 1
 
 WINDOW *TERMINAL_WIN = NULL, *SIDEBAR_WIN = NULL, *MAP_WIN = NULL;
-volatile sig_atomic_t resized = 1; /* 1 to enter loop on start */
 uint8_t BLOCK_SIZE;
-
 int CLIENT_FD; /* global client socket file descriptor for sending messages to server */
-
-typedef struct {
-    uint16_t width;
-    uint16_t height;
-    char *data;
-} GameMap;
-
 GameMap GAME_MAP;
+
+volatile sig_atomic_t resized = 1; /* 1 to enter loop on start */
+void resize_handler(int sig) {
+    (void)sig; /* compiler happy :) */
+    resized = 1;
+}
 
 void handle_user_input();
 void draw_game_board();
 void resize_game_board();
 
-void resize_handler(int sig) {
-    resized = 1;
-}
-
-
 
 int main() {
-    uint8_t c, height, width;
-
-    /* -----------------test-input-------------------- */
-    FILE *fp = fopen("maps/example_map_config.txt", "r");
-    if (!fp) return 1;
-
-    fscanf(fp, "%hhd %hhd", &height, &width);
-
-    /* skip 4 characters while testing */
-    for (int i = 0; i < 4; i++) {
-        fscanf(fp, " %c", &c);
-    }
-
-    char *map_data = malloc(height * width + 1);
-
-    for (int i = 0; i < height * width; i++)
-        fscanf(fp, " %c", &map_data[i]);
-    map_data[height * width] ='\0';
-
-    fclose(fp);
-
-    GAME_MAP.width = width;
-    GAME_MAP.height = height;
-    GAME_MAP.data = map_data; 
-
-    /* debug: print the map */
-    // printf("Map %dx%d:\n", GAME_MAP.width, GAME_MAP.height);
-    // for (int i = 0; i < GAME_MAP.height; i++) {
-    //     for (int j = 0; j < GAME_MAP.width; j++) {
-    //         printf("%c ", GAME_MAP.data[i * GAME_MAP.width + j]);
-    //     }
-    //     printf("\n");
-    // }
-    // getchar(); /* wait for input before starting ncurses */
-    /* -----------------test-input-------------------- */
-
-
     /* connect to server */
     struct sockaddr_in server_addr;  
 
@@ -103,6 +58,16 @@ int main() {
         return EXIT_FAILURE;  
     }  
     printf("Server connection successful\n");  
+
+    /* receive map data */
+    uint8_t header[2];
+    recv_all(CLIENT_FD, header, 2);
+    GAME_MAP.height = header[0];
+    GAME_MAP.width = header[1];
+
+    size_t size = (size_t)GAME_MAP.height * (size_t)GAME_MAP.width;
+    GAME_MAP.cells = malloc(size);
+    recv_all(CLIENT_FD, GAME_MAP.cells, size);
 
     // /* send test data */
     // send(CLIENT_FD, "Hello, Server!", 14, 0);
@@ -230,13 +195,13 @@ void draw_game_board() {
     /*-------------------------------------------------------------------*/
     /*                          MAIN GAME BOARD                          */
     /*-------------------------------------------------------------------*/
-    uint16_t offset_y = (LINES - GAME_MAP.height) / 2;
-    uint16_t offset_x = (COLS - GAME_MAP.width) / 2;
+    // uint16_t offset_y = (LINES - GAME_MAP.height) / 2;
+    // uint16_t offset_x = (COLS - GAME_MAP.width) / 2;
 
     if (BLOCK_SIZE < 5) {
         for (int i = 0; i < GAME_MAP.height; i++) {
             for (int j = 0; j < GAME_MAP.width; j++) {
-                char cell = GAME_MAP.data[i * GAME_MAP.width + j];
+                char cell = GAME_MAP.cells[i * GAME_MAP.width + j];
                 if (cell == '.') { continue; } /* skip empty cells */
 
                 for (int k = 0; k < BLOCK_SIZE; k++) {
@@ -253,7 +218,7 @@ void draw_game_board() {
     } else { /* draw special objects */
         for (int i = 0; i < GAME_MAP.height; i++) {
             for (int j = 0; j < GAME_MAP.width; j++) {
-                char cell = GAME_MAP.data[i * GAME_MAP.width + j];
+                char cell = GAME_MAP.cells[i * GAME_MAP.width + j];
                 if (cell == '.') { continue; } /* skip empty cells */
 
                 switch (cell) {
