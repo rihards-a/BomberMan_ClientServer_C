@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <string.h>
 
 #include "../config.h"
 #include "../msg_protocol.h"
@@ -14,8 +15,8 @@
 /*  max amount of ASCII symbols representing a single element on the map 
     - lower means more efficient bounds checking */
 #define MAX_BLOCK_SIZE 8 
-/* player name +(4chars) character symbol on the map (1 char) +(4chars) their score (10 chars) */
-#define SIDE_BAR_WIDTH MAX_NAME_LEN + 4 + 1 + 4 + 10
+/* player name +(4chars) character symbol on the map (1 char) +(4chars) their score (10 chars) + 4 for borders */
+#define SIDE_BAR_WIDTH MAX_NAME_LEN + 4 + 1 + 4 + 10 + 4
 /* padding + max 8 player names +(2chars) start button + padding */
 #define SIDE_BAR_HEIGHT 1 + 8 + 2 + 1 + 1
 
@@ -67,6 +68,16 @@ int main() {
     GAME_MAP.width = width;
     GAME_MAP.height = height;
     GAME_MAP.data = map_data; 
+
+    /* debug: print the map */
+    // printf("Map %dx%d:\n", GAME_MAP.width, GAME_MAP.height);
+    // for (int i = 0; i < GAME_MAP.height; i++) {
+    //     for (int j = 0; j < GAME_MAP.width; j++) {
+    //         printf("%c ", GAME_MAP.data[i * GAME_MAP.width + j]);
+    //     }
+    //     printf("\n");
+    // }
+    // getchar(); /* wait for input before starting ncurses */
     /* -----------------test-input-------------------- */
 
     initscr();
@@ -205,8 +216,33 @@ void draw_game_board() {
                         }
                         break;
 
-                    case 'S': 
-                        /* soft wall -> only corners */
+                    /* ! ? @ $ ^ & ~ < .... too hard to see, might as well use numbers */
+                    case '1': case '2': case '3': case '4': case '5': case '6': case '7': case '8':
+                        // const char player_symbols[] = "!?#$^&~<";
+                        // char player_cell = player_symbols[cell - '1'];
+                        char player_cell = cell;
+                        /* player -> with corners and filled with respective ID symbol */
+                        for (int k = 0; k < BLOCK_SIZE; k++) {
+                            for (int l = 0; l < BLOCK_SIZE; l++) {
+                                int is_corner = (k == 0 && l == 0) || (k == 0 && l == BLOCK_SIZE - 1) ||
+                                                (k == BLOCK_SIZE - 1 && l == 0) || (k == BLOCK_SIZE - 1 && l == BLOCK_SIZE - 1);
+
+                                int y = i * BLOCK_SIZE + k + 1;
+                                int x = j * BLOCK_SIZE * 2 + l * 2 + 1;
+
+                                if (is_corner) {
+                                    mvwaddch(MAP_WIN, y, x,     ' ' | A_REVERSE);
+                                    mvwaddch(MAP_WIN, y, x + 1, ' ' | A_REVERSE);
+                                } else {
+                                    mvwaddch(MAP_WIN, y, x, player_cell);
+                                    mvwaddch(MAP_WIN, y, x + 1, '.');
+                                }
+                            }
+                        }
+                        break;
+
+                    default:
+                        /* only corners, don't fill in sides */
                         for (int k = 0; k < BLOCK_SIZE; k++) {
                             for (int l = 0; l < BLOCK_SIZE; l++) {
                                 int is_corner = (k == 0 && l == 0) || (k == 0 && l == BLOCK_SIZE - 1) ||
@@ -229,26 +265,6 @@ void draw_game_board() {
                                 }
                             }
                         }
-                        break;
-
-                    default: /* give corners but don't empty the sides of the square */
-                        for (int k = 0; k < BLOCK_SIZE; k++) {
-                            for (int l = 0; l < BLOCK_SIZE; l++) {
-                                int is_corner = (k == 0 && l == 0) || (k == 0 && l == BLOCK_SIZE - 1) ||
-                                                (k == BLOCK_SIZE - 1 && l == 0) || (k == BLOCK_SIZE - 1 && l == BLOCK_SIZE - 1);
-
-                                int y = i * BLOCK_SIZE + k + 1;
-                                int x = j * BLOCK_SIZE * 2 + l * 2 + 1;
-
-                                if (is_corner) {
-                                    mvwaddch(MAP_WIN, y, x,     ' ' | A_REVERSE);
-                                    mvwaddch(MAP_WIN, y, x + 1, ' ' | A_REVERSE);
-                                } else {
-                                    mvwaddch(MAP_WIN, y, x, cell);
-                                    mvwaddch(MAP_WIN, y, x + 1, '.');
-                                }
-                            }
-                        }
 
                 }
             }
@@ -263,6 +279,15 @@ void draw_game_board() {
     /*-------------------------------------------------------------------*/
 
     /* TODO */
+    for (int i = 1; i < MAX_PLAYERS+1; i++) {
+        mvwaddnstr(SIDEBAR_WIN, i, 1, "your 30 username aaaaaaaaaaaa", 30);
+        mvwaddnstr(SIDEBAR_WIN, i, 31, " __ ", 4);
+        mvwaddch(SIDEBAR_WIN, i, 36, '@'); /* ! ? @ $ % & ~ < */
+        mvwaddnstr(SIDEBAR_WIN, i, 37, " __ ", 4);
+        mvwaddnstr(SIDEBAR_WIN, i, 42, "0123456789", 10);
+    }
+    mvwaddnstr(SIDEBAR_WIN, SIDE_BAR_HEIGHT-3, (SIDE_BAR_WIDTH - strlen("Latest winner: Zebiekste"))/2 -1, "Latest winner: Zebiekste", 40);
+    mvwaddnstr(SIDEBAR_WIN, SIDE_BAR_HEIGHT-2, (SIDE_BAR_WIDTH - strlen("Press ESC to return / SPACE to restart"))/2 -1, "Press ESC to return / SPACE to restart", 40);
 
     wrefresh(SIDEBAR_WIN);
 }
