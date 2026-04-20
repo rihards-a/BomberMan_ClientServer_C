@@ -15,8 +15,7 @@
 
 /*  2 to use '.' symbols in between chars for padding, only option */
 #define DOT_PADDING 2 
-/*  max amount of ASCII symbols representing a single element on the map 
-    - lower means more efficient bounds checking */
+/*  max amount of ASCII symbols representing a single element on the map - lower means more efficient bounds checking */
 #define MAX_BLOCK_SIZE 8 
 /* player name +(4chars) character symbol on the map (1 char) +(4chars) their score (10 chars) + 4 for borders */
 #define SIDE_BAR_WIDTH MAX_NAME_LEN + 4 + 1 + 4 + 10 + 4
@@ -34,9 +33,9 @@ void resize_handler(int sig) {
     resized = 1;
 }
 
-void handle_user_input();
-void draw_game_board();
-void resize_game_board();
+static void handle_user_input();
+static void draw_game_board();
+static void resize_game_board();
 static void handle_disconnect();
 static void handle_error();
 static void dispatch(int fd, const msg_generic_t *header, const void *payload);
@@ -78,15 +77,9 @@ int main() {
                      ".2......."
                      ".........";
     memcpy(GAME_MAP.cells, test_map, 54);
-
-    // /* send test data */
-    // send(CLIENT_FD, "Hello, Server!", 14, 0);
-    // send(CLIENT_FD, "Ping", 4, 0);
-    // send(CLIENT_FD, "Test message 1", 14, 0);
-    // send(CLIENT_FD, "How are you?", 12, 0);
-    // send(CLIENT_FD, "1234567890", 10, 0);
-
+    /* implement init receiving later, for now const until receive the server map in loop */
     
+
     initscr();
     cbreak();       /* disables line buffering */
     noecho();       /* don't echo user input back */
@@ -94,7 +87,6 @@ int main() {
     nodelay(stdscr, TRUE);  /* make getch non-blocking */
     keypad(stdscr, TRUE);   /* enable arrow keys and function keys */
     TERMINAL_WIN = newwin(LINES, COLS, 0, 0);
-
 
     signal(SIGWINCH, resize_handler);
     while (1) {
@@ -114,7 +106,6 @@ int main() {
         usleep(1000000 / TICKS_PER_SECOND); /* 1e6 for microseconds */
     }
 
-
     return 0;
 }
 
@@ -122,6 +113,15 @@ int main() {
 
 
 /* -------------------------- function declarations --------------------------- */
+
+static void handle_sync_board(const msg_generic_t *header, const msg_map_t *map_msg) {
+    (void)header; /* might be useful later */
+    /* update local game map with new data */
+    GAME_MAP.width = map_msg->width;
+    GAME_MAP.height = map_msg->height;
+    size_t cells_len = (size_t)map_msg->width * (size_t)map_msg->height;
+    memcpy(GAME_MAP.cells, map_msg->cells, cells_len);
+}
 
 static void handle_disconnect() {
     endwin();
@@ -139,13 +139,7 @@ static void dispatch(int fd, const msg_generic_t *header, const void *payload) {
 
     switch (header->msg_type) {
         case MSG_SYNC_BOARD:
-            /* update local game map with new data */
-            const msg_map_t *map_msg = (const msg_map_t *)payload;
-            GAME_MAP.width = map_msg->width;
-            GAME_MAP.height = map_msg->height;
-            size_t cells_len = (size_t)map_msg->width * (size_t)map_msg->height;
-            // GAME_MAP.cells = malloc(cells_len);
-            memcpy(GAME_MAP.cells, map_msg->cells, cells_len);
+            handle_sync_board(header, (const msg_map_t *)payload);
             break;
     }
 }
@@ -169,20 +163,18 @@ static void handle_server_messages(int fd)
     }
 }
 
-void handle_movement_input(int ch) {
+static void handle_movement_input(int ch) {
     uint8_t direction;
     if (ch == KEY_UP)    { direction = 'U'; }
     if (ch == KEY_DOWN)  { direction = 'D'; }
     if (ch == KEY_LEFT)  { direction = 'L'; }
     if (ch == KEY_RIGHT) { direction = 'R'; }
     
-    /* TODO: wrap this in the generic message struct later */
-    /* send movement attempt to server */
     msg_move_attempt_t move_msg = { .direction = direction };
-    send(CLIENT_FD, &move_msg, sizeof(move_msg), 0);
+    send_move_attempt(CLIENT_FD, 1, 255, &move_msg);
 }
 
-void handle_user_input(int ch) {
+static void handle_user_input(int ch) {
     if (ch != ERR) {
         if (ch == KEY_UP   || ch == KEY_DOWN 
          || ch == KEY_LEFT || ch == KEY_RIGHT) {
@@ -193,7 +185,7 @@ void handle_user_input(int ch) {
     }
 }
 
-void resize_game_board() {
+static void resize_game_board() {
     BLOCK_SIZE = MAX_BLOCK_SIZE; /* reset block size to max on each resize */
 
     endwin();
@@ -244,7 +236,7 @@ void resize_game_board() {
 
 /*  separate from resize handler, because doesn't resize the box or symbol size,
     more efficient performance wise. */
-void draw_game_board() {
+static void draw_game_board() {
     /* die.net man: When using this routine, it is necessary to call touchwin 
     or touchline on orig before calling wrefresh on the subwindow.
         - wrefresh works for me, touchline causes weird behaviour. */
@@ -260,7 +252,7 @@ void draw_game_board() {
         for (int i = 0; i < GAME_MAP.height; i++) {
             for (int j = 0; j < GAME_MAP.width; j++) {
                 char cell = GAME_MAP.cells[i * GAME_MAP.width + j];
-                if (cell == '.') { continue; } /* skip empty cells */
+                if (cell == '.') { cell = ' '; } /* clear empty cells */
 
                 for (int k = 0; k < BLOCK_SIZE; k++) {
                     for (int l = 0; l < BLOCK_SIZE; l++) {
@@ -277,9 +269,21 @@ void draw_game_board() {
         for (int i = 0; i < GAME_MAP.height; i++) {
             for (int j = 0; j < GAME_MAP.width; j++) {
                 char cell = GAME_MAP.cells[i * GAME_MAP.width + j];
-                if (cell == '.') { continue; } /* skip empty cells */
+                // if (cell == '.') { continue; } /* skip empty cells */
 
                 switch (cell) {
+                    case '.':
+                        /* can't skip empty cells, they have to clear old state */
+                        for (int k = 0; k < BLOCK_SIZE; k++) {
+                            for (int l = 0; l < BLOCK_SIZE; l++) {
+                                int y = i * BLOCK_SIZE + k + 1;
+                                int x = j * BLOCK_SIZE * 2 + l * 2 + 1;
+
+                                mvwaddch(MAP_WIN, y, x,     ' ');
+                                mvwaddch(MAP_WIN, y, x + 1, ' ');
+                            }
+                        }
+                        break; 
                     case 'H': 
                         /* hard wall -> full border */
                         for (int k = 0; k < BLOCK_SIZE; k++) {
