@@ -51,6 +51,7 @@ int main() {
 
     /* -----------------test-input-map-------------------- */
     uint8_t height, width, c;
+    /* make sure you're running it from the right directory (as ./server)*/
     FILE *fp = fopen("maps/test_map_1.txt", "r");
     if (!fp) return 1;
 
@@ -66,26 +67,17 @@ int main() {
 
     for (int i = 0; i < height * width; i++)
         fscanf(fp, " %c", &GAME_MAP->cells[i]);
-
+    
     fclose(fp);
 
-    /* send MSG_SYNC_BOARD from TARGET_SERVER (255) to everyone (254) */
+    usleep(1000000); /* wait ; check if the map will change from client loop */
+
+    /* send MSG_SYNC_BOARD from TARGET_SERVER (255) to everyone (254) - but actually just the CLIENT_FD */
+    printf("Sending map message to client...\n");
     if (send_map_message(CLIENT_FD, MSG_SYNC_BOARD, TARGET_SERVER, TARGET_BROADCAST, GAME_MAP) < 0) {
         perror("Failed to send map message");
         return EXIT_FAILURE;
     }
-
-    /* -----------------test-input-map-------------------- */
-    // /* send out the map data */
-    // uint8_t header[2];
-    // header[0] = height;
-    // header[1] = width;
-
-    // send_all(CLIENT_FD, header, 2);
-
-    // size_t size = (size_t)height * (size_t)width;
-    // send_all(CLIENT_FD, map_data, size);
-
 
     /* ------------------ main loop ------------------ */
     while (1) {  
@@ -100,6 +92,7 @@ int main() {
         if (bytes_read != sizeof(msg)) continue;
         
         printf("Direction: %c\n", msg.direction);
+        usleep(1000000 / TICKS_PER_SECOND); /* 1e6 for microseconds */
     }
 
     return 0;  

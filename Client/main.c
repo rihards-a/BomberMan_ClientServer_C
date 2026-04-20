@@ -37,6 +37,10 @@ void resize_handler(int sig) {
 void handle_user_input();
 void draw_game_board();
 void resize_game_board();
+static void handle_disconnect();
+static void handle_error();
+static void dispatch(int fd, const msg_generic_t *header, const void *payload);
+static void handle_server_messages(int fd);
 
 
 int main() {
@@ -60,14 +64,20 @@ int main() {
     printf("Server connection successful\n");  
 
     /* receive map data */
-    uint8_t header[2];
-    recv_all(CLIENT_FD, header, 2);
-    GAME_MAP.height = header[0];
-    GAME_MAP.width = header[1];
-
-    size_t size = (size_t)GAME_MAP.height * (size_t)GAME_MAP.width;
-    GAME_MAP.cells = malloc(size);
-    recv_all(CLIENT_FD, GAME_MAP.cells, size);
+    /* implement init receiving later, for now const until receive the server map in loop */
+    /* the size has to be at least equal to the map the server will send, 
+        otherwise will overflow from memcpy later on */
+    GAME_MAP.height = 6;
+    GAME_MAP.width = 9;
+    GAME_MAP.cells = malloc(GAME_MAP.height * GAME_MAP.width);
+        /* . = empty, H = hard wall, 1-8 = player IDs */
+    char *test_map = "........."
+                     ".H.H.H.H."
+                     ".1......."
+                     ".H.H.H.H."
+                     ".2......."
+                     ".........";
+    memcpy(GAME_MAP.cells, test_map, 54);
 
     // /* send test data */
     // send(CLIENT_FD, "Hello, Server!", 14, 0);
@@ -94,6 +104,8 @@ int main() {
             resized = 0;
         }
 
+        handle_server_messages(CLIENT_FD);
+
         int ch = getch();
         handle_user_input(ch);
 
@@ -110,6 +122,52 @@ int main() {
 
 
 /* -------------------------- function declarations --------------------------- */
+
+static void handle_disconnect() {
+    endwin();
+    exit(0);
+}
+
+static void handle_error() {
+    endwin();
+    fprintf(stderr, "An error occurred while receiving data from the server.\n");
+    exit(1);
+}
+
+static void dispatch(int fd, const msg_generic_t *header, const void *payload) {
+    (void)fd; /* not needed for now, but might be useful later for messages that require a response */
+
+    switch (header->msg_type) {
+        case MSG_SYNC_BOARD:
+            /* update local game map with new data */
+            const msg_map_t *map_msg = (const msg_map_t *)payload;
+            GAME_MAP.width = map_msg->width;
+            GAME_MAP.height = map_msg->height;
+            size_t cells_len = (size_t)map_msg->width * (size_t)map_msg->height;
+            // GAME_MAP.cells = malloc(cells_len);
+            memcpy(GAME_MAP.cells, map_msg->cells, cells_len);
+            break;
+    }
+}
+
+static void handle_server_messages(int fd)
+{
+    msg_generic_t header;
+    void         *payload;
+    size_t        payload_len;
+
+    for (;;) {
+        int rc = recv_protocol_message(fd, &header, &payload, &payload_len);
+
+        if (rc == 2) return;               /* nothing pending this tick */
+        if (rc == 1) { handle_disconnect(); return; }
+        if (rc == -1){ handle_error();      return; }
+
+        dispatch(fd, &header, payload);
+        free(payload);
+        /* loop: drain any further messages that arrived this tick */
+    }
+}
 
 void handle_movement_input(int ch) {
     uint8_t direction;
