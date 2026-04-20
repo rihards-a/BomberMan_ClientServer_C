@@ -50,7 +50,7 @@ static ssize_t recv_all(int fd, void *buf, size_t len)
     return (ssize_t)total;
 }
 
-/* wrapper for recv_all for easier error handling */
+/* wrapper for recv_all for easier error handling, probably can remove later */
 static int recv_exact(int fd, void *buf, size_t len)
 {
     ssize_t n = recv_all(fd, buf, len);
@@ -66,8 +66,8 @@ int send_protocol_message(int fd,
                         uint8_t msg_type,
                         uint8_t sender_id,
                         uint8_t target_id,
-                        const void *payload,
-                        size_t payload_len)
+                        size_t payload_len,
+                        const void *payload)
 {
     msg_generic_t header = {
         .msg_type = msg_type,
@@ -92,22 +92,59 @@ int send_protocol_message(int fd,
     return 0;
 }
 
-int send_map_message(int fd,
-                    uint8_t msg_type,
-                    uint8_t sender_id,
-                    uint8_t target_id,
+
+/* --------------------------------------------------------------------- */
+/*              beginning of sending different prot msgs                 */
+/* --------------------------------------------------------------------- */
+
+/* --------------------------------------------------------------------- */
+int send_map_message(int fd, 
+                    uint8_t sender_id, 
+                    uint8_t target_id, 
                     const msg_map_t *map)
 {
     size_t cells_len = (size_t)map->height * (size_t)map->width;
-    size_t body_len = sizeof(*map) + cells_len;
+    size_t map_len = sizeof(*map) + cells_len;
 
     return send_protocol_message(fd,
-                                msg_type,
+                                MSG_SYNC_BOARD,
                                 sender_id,
                                 target_id,
-                                map,
-                                body_len);
+                                map_len,
+                                map);
 }
+
+/* --------------------------------------------------------------------- */
+int send_ping_message(int fd, 
+                    uint8_t sender_id, 
+                    uint8_t target_id)
+{
+    return send_protocol_message(fd, 
+                                MSG_PING, 
+                                sender_id, 
+                                target_id, 
+                                0, 
+                                NULL);
+}
+
+/* --------------------------------------------------------------------- */
+int send_move_attempt(int fd, 
+                    uint8_t sender_id, 
+                    uint8_t target_id, 
+                    const msg_move_attempt_t *move)
+{
+    return send_protocol_message(fd, 
+                                MSG_MOVE_ATTEMPT, 
+                                sender_id, 
+                                target_id, 
+                                sizeof(*move), 
+                                move);
+}
+
+
+/* --------------------------------------------------------------------- */
+/*                      beginning of receiver declaration                */
+/* --------------------------------------------------------------------- */
 
 /* for receiving messages of known constant length */
 static int recv_fixed_message(int fd, void **payload, size_t *payload_len, size_t size)
