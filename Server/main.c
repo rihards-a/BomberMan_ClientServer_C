@@ -13,7 +13,7 @@
 #include "../config.h"
 #include "../msg_protocol.h"
 
-GameMap GAME_MAP;
+msg_map_t *GAME_MAP;
 int CLIENT_FD;
 
 ssize_t send_all(int fd, const void *buf, size_t len);
@@ -48,39 +48,43 @@ int main() {
     }  
 
     printf("Client connected\n");  
+
     /* -----------------test-input-map-------------------- */
     uint8_t height, width, c;
     FILE *fp = fopen("maps/test_map_1.txt", "r");
     if (!fp) return 1;
 
     fscanf(fp, "%hhd %hhd", &height, &width);
+    GAME_MAP = malloc(sizeof(GAME_MAP) + height * width);
+    GAME_MAP->width = width;
+    GAME_MAP->height = height;
 
     /* skip 4 characters while testing */
     for (int i = 0; i < 4; i++) {
         fscanf(fp, " %c", &c);
     }
 
-    char *map_data = malloc(height * width + 1);
-
     for (int i = 0; i < height * width; i++)
-        fscanf(fp, " %c", &map_data[i]);
-    map_data[height * width] ='\0';
+        fscanf(fp, " %c", &GAME_MAP->cells[i]);
 
     fclose(fp);
 
-    GAME_MAP.width = width;
-    GAME_MAP.height = height;
-    GAME_MAP.cells = (uint8_t*)map_data; 
+    /* send MSG_SYNC_BOARD from TARGET_SERVER (255) to everyone (254) */
+    if (send_map_message(CLIENT_FD, MSG_SYNC_BOARD, TARGET_SERVER, TARGET_BROADCAST, GAME_MAP) < 0) {
+        perror("Failed to send map message");
+        return EXIT_FAILURE;
+    }
+
     /* -----------------test-input-map-------------------- */
-    /* send out the map data */
-    uint8_t header[2];
-    header[0] = height;
-    header[1] = width;
+    // /* send out the map data */
+    // uint8_t header[2];
+    // header[0] = height;
+    // header[1] = width;
 
-    send_all(CLIENT_FD, header, 2);
+    // send_all(CLIENT_FD, header, 2);
 
-    size_t size = (size_t)height * (size_t)width;
-    send_all(CLIENT_FD, map_data, size);
+    // size_t size = (size_t)height * (size_t)width;
+    // send_all(CLIENT_FD, map_data, size);
 
 
     /* ------------------ main loop ------------------ */
