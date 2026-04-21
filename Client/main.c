@@ -33,6 +33,19 @@ void resize_handler(int sig) {
     resized = 1;
 }
 
+player_t TEST_PLAYER = {
+    .id = 1,
+    .name = "Test Player",
+    .row = 0,
+    .col = 1,
+    .alive = true,
+    .ready = true,
+    .bomb_count = 2,
+    .bomb_radius = 3,
+    .bomb_timer_ticks = 5,
+    .speed = 1
+};
+
 static void handle_user_input(int ch);
 static void draw_game_board();
 static void resize_game_board();
@@ -114,6 +127,28 @@ int main() {
 
 /* -------------------------- function declarations --------------------------- */
 
+static void handle_moved(const msg_generic_t *header, const msg_moved_t *moved_msg) {
+    (void)header; /* might be useful later */
+    uint16_t cur_pos = make_cell_index(TEST_PLAYER.row, TEST_PLAYER.col, GAME_MAP.width);
+
+    /* find old position of the player and clear it */
+    if (GAME_MAP.cells[cur_pos] == '0' + moved_msg->player_id) {
+        GAME_MAP.cells[cur_pos] = '.';
+    }
+
+    /* check if it's for self */
+    if (moved_msg->player_id == TEST_PLAYER.id) {
+        /* update test player position */
+        TEST_PLAYER.row = moved_msg->cell_index / GAME_MAP.width;
+        TEST_PLAYER.col = moved_msg->cell_index % GAME_MAP.width;
+    }
+    
+    uint8_t player_id = moved_msg->player_id;
+    uint16_t cell_index = moved_msg->cell_index;
+    /* set new position of the player */
+    GAME_MAP.cells[cell_index] = '0' + player_id;
+}
+
 static void handle_sync_board(const msg_generic_t *header, const msg_map_t *map_msg) {
     (void)header; /* might be useful later */
     /* update local game map with new data */
@@ -140,6 +175,9 @@ static void dispatch(int fd, const msg_generic_t *header, const void *payload) {
     switch (header->msg_type) {
         case MSG_SYNC_BOARD:
             handle_sync_board(header, (const msg_map_t *)payload);
+            break;
+        case MSG_MOVED:
+            handle_moved(header, (const msg_moved_t *)payload);
             break;
     }
 }

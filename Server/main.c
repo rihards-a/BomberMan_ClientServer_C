@@ -135,10 +135,10 @@ static void handle_move_attempt(const msg_generic_t *header, const msg_move_atte
             }
             break;
         case 'R': 
-            if (tmp_col + 1 >= GAME_MAP->width) {
+            tmp_col += 1; 
+            if (tmp_col >= GAME_MAP->width) {
                 goto blocked_move;
             }
-            tmp_col += 1; 
             break;
     }
     uint16_t new_pos = make_cell_index(tmp_row, tmp_col, GAME_MAP->width);
@@ -148,12 +148,15 @@ static void handle_move_attempt(const msg_generic_t *header, const msg_move_atte
         GAME_MAP->cells[new_pos] = '0' + test_player.id; /* move player to new position */
         test_player.row = tmp_row;
         test_player.col = tmp_col;
-        if (send_map_message(CLIENT_FD, TARGET_SERVER, TARGET_BROADCAST, GAME_MAP) < 0) {
-            perror("Failed to send map message");
+        
+        if (send_moved(CLIENT_FD, TARGET_SERVER, TARGET_BROADCAST, &(msg_moved_t){ .player_id = test_player.id, .cell_index = new_pos }) < 0) {
+            perror("Failed to send moved message");
         }
     } 
-    blocked_move:
-        printf("Move blocked at position (%d, %d)\n", tmp_row, tmp_col);
+    else {
+        blocked_move:
+            printf("Move blocked at position (%d, %d)\n", tmp_row, tmp_col);
+    }
 }
 
 static void handle_disconnect() {
