@@ -127,11 +127,22 @@ int main() {
 
 /* -------------------------- function declarations --------------------------- */
 
+static void handle_explosion_end(const msg_generic_t *header, const msg_explosion_end_t *expl_end) {
+    (void)header; /* might be useful later */
+    /* for testing, just clear the explosion center */
+    GAME_MAP.cells[expl_end->cell_index] = '.';
+}
+
+static void handle_explosion_start(const msg_generic_t *header, const msg_explosion_start_t *expl_start) {
+    (void)header; /* might be useful later */
+    /* for testing, just mark the explosion center */
+    GAME_MAP.cells[expl_start->cell_index] = 't';
+}
+
 static void handle_bomb(const msg_generic_t *header, const msg_bomb_t *bomb_msg) {
     (void)header; /* might be useful later */
-    uint16_t cell_index = bomb_msg->cell_index;
     /* for testing, just mark the bomb on the map with a 'B' */
-    GAME_MAP.cells[cell_index] = 'B';
+    GAME_MAP.cells[bomb_msg->cell_index] = 'B';
 }
 
 static void handle_moved(const msg_generic_t *header, const msg_moved_t *moved_msg) {
@@ -189,6 +200,15 @@ static void dispatch(int fd, const msg_generic_t *header, const void *payload) {
         case MSG_BOMB:
             handle_bomb(header, (const msg_bomb_t *)payload);
             break;
+        
+        case MSG_EXPLOSION_START:
+            handle_explosion_start(header, (const msg_explosion_start_t *)payload);
+            break;
+
+        case MSG_EXPLOSION_END:
+            handle_explosion_end(header, (const msg_explosion_end_t *)payload);
+            break;
+
     }
 }
 

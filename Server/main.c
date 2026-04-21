@@ -112,6 +112,10 @@ int main() {
         handle_client_messages(CLIENT_FD);
 
         if (++tick_count >= TICKS_PER_SECOND) {
+            /* this does mean that bombs placed at 0.01s and 0.99s explode at the same time.
+                a solution is storing ticks inside bombs and running this every tick, should 
+                probably implement that later - multiply player tick count with 20 so its ticks
+                per second, and then subtract per tick. */
             bomb_array_tick_second(&ACTIVE_BOMBS);
             tick_count = 0;
         }
@@ -135,16 +139,38 @@ static int bomb_array_push(BombArray *a, bomb_t bomb)
 
 static void bomb_array_explode(BombArray *a, size_t i)
 {
+    uint16_t cell_index = make_cell_index(a->bombs[i].row, a->bombs[i].col, GAME_MAP->width);
+    if (!a->bombs[i].active) {
+        a->bombs[i].active = true;
+        /* find the player by owner_id, but for now we have constant tester 
+            uint8_t owner_id = a->bombs[i].owner_id;
+            +1 added because the while loop that ticks these bombs decrements 1 on check */
+        a->bombs[i].timer_ticks = test_player.bomb_timer_ticks + 1; 
+
+        GAME_MAP->cells[cell_index] = 't';
+        /* send explosion start message to clients */
+        printf("Bomb at (%d, %d) started exploding!\n", a->bombs[i].row, a->bombs[i].col);
+        if (send_explosion_start(CLIENT_FD, TARGET_SERVER, TARGET_BROADCAST, &(msg_explosion_start_t){
+            .cell_index = cell_index,
+            .radius = a->bombs[i].radius
+        }) < 0) {
+            perror("Failed to send explosion start message");
+        }
+        return;
+    }
     /* for now just remove the bomb */
     printf("Bomb at (%d, %d) exploded!\n", a->bombs[i].row, a->bombs[i].col);
-    GAME_MAP->cells[make_cell_index(a->bombs[i].row, a->bombs[i].col, GAME_MAP->width)] = '.';
+    GAME_MAP->cells[cell_index] = '.';
 
     bombs_active_for_player[a->bombs[i].owner_id]--;
     a->bombs[i] = a->bombs[a->size - 1];
     a->size--;
-    /* send map resync to see */
-    if (send_map_message(CLIENT_FD, TARGET_SERVER, TARGET_BROADCAST, GAME_MAP) < 0) {
-        perror("Failed to send map message");
+    
+    if (send_explosion_end(CLIENT_FD, TARGET_SERVER, TARGET_BROADCAST, &(msg_explosion_start_t){
+        .cell_index = cell_index,
+        .radius = a->bombs[i].radius
+    }) < 0) {
+        perror("Failed to send explosion end message");
     }
 }
 
@@ -156,6 +182,7 @@ static void bomb_array_tick_second(BombArray *a)
         a->bombs[i].timer_ticks--;
 
         if (a->bombs[i].timer_ticks <= 0) {
+            printf("bomb timer: %d\n", a->bombs[i].timer_ticks);
             bomb_array_explode(a, i);
         } else {
             i++;
@@ -174,7 +201,7 @@ static void handle_bomb_attempt(const msg_generic_t *header, const msg_bomb_atte
         is_player_on_bomb[test_player.id] = 1;
 
         bomb_array_push(&ACTIVE_BOMBS, (bomb_t){
-            .active = true,
+            .active = false, /* active means it is currently exploding, useful for tracking in seconds */
             .owner_id = test_player.id,
             .row = test_player.row,
             .col = test_player.col,

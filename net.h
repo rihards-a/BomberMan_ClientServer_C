@@ -45,6 +45,14 @@ int recv_protocol_message(int fd,
     void **payload,
     size_t *payload_len);
 
-    
+int send_explosion_start(int fd, 
+    uint8_t sender_id, 
+    uint8_t target_id, 
+    const msg_explosion_start_t *expl_start);
+
+int send_explosion_end(int fd, 
+    uint8_t sender_id, 
+    uint8_t target_id, 
+    const msg_explosion_start_t *expl_end);
 
 #endif

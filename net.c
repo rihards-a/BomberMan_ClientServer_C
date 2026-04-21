@@ -99,60 +99,60 @@ int send_protocol_message(int fd,
 
 /* --------------------------------------------------------------------- */
 int send_map_message(int fd, 
-                    uint8_t sender_id, 
-                    uint8_t target_id, 
-                    const msg_map_t *map)
+    uint8_t sender_id, 
+    uint8_t target_id, 
+    const msg_map_t *map)
 {
     size_t cells_len = (size_t)map->height * (size_t)map->width;
     size_t map_len = sizeof(*map) + cells_len;
 
     return send_protocol_message(fd,
-                                MSG_SYNC_BOARD,
-                                sender_id,
-                                target_id,
-                                map_len,
-                                map);
+        MSG_SYNC_BOARD,
+        sender_id,
+        target_id,
+        map_len,
+        map);
 }
 
 /* --------------------------------------------------------------------- */
 int send_ping_message(int fd, 
-                    uint8_t sender_id, 
-                    uint8_t target_id)
+    uint8_t sender_id, 
+    uint8_t target_id)
 {
     return send_protocol_message(fd, 
-                                MSG_PING, 
-                                sender_id, 
-                                target_id, 
-                                0, 
-                                NULL);
+        MSG_PING, 
+        sender_id, 
+        target_id, 
+        0, 
+        NULL);
 }
 
 /* --------------------------------------------------------------------- */
 int send_move_attempt(int fd, 
-                    uint8_t sender_id, 
-                    uint8_t target_id, 
-                    const msg_move_attempt_t *move)
+    uint8_t sender_id, 
+    uint8_t target_id, 
+    const msg_move_attempt_t *move)
 {
     return send_protocol_message(fd, 
-                                MSG_MOVE_ATTEMPT, 
-                                sender_id, 
-                                target_id, 
-                                sizeof(*move), 
-                                move);
+        MSG_MOVE_ATTEMPT, 
+        sender_id, 
+        target_id, 
+        sizeof(*move), 
+        move);
 }
 
 /* --------------------------------------------------------------------- */
 int send_moved(int fd, 
-            uint8_t sender_id, 
-            uint8_t target_id, 
-            const msg_moved_t *moved)
+    uint8_t sender_id, 
+    uint8_t target_id, 
+    const msg_moved_t *moved)
 {
     return send_protocol_message(fd, 
-                                MSG_MOVED, 
-                                sender_id, 
-                                target_id, 
-                                sizeof(*moved), 
-                                moved);
+        MSG_MOVED, 
+        sender_id, 
+        target_id, 
+        sizeof(*moved), 
+        moved);
 }
 
 /* --------------------------------------------------------------------- */
@@ -161,12 +161,12 @@ int send_bomb_attempt(int fd,
     uint8_t target_id, 
     const msg_bomb_attempt_t *bomb_attempt)
 {
-return send_protocol_message(fd, 
-                MSG_BOMB_ATTEMPT, 
-                sender_id, 
-                target_id, 
-                sizeof(*bomb_attempt), 
-                bomb_attempt);
+    return send_protocol_message(fd, 
+        MSG_BOMB_ATTEMPT, 
+        sender_id, 
+        target_id, 
+        sizeof(*bomb_attempt), 
+        bomb_attempt);
 }
 
 /* --------------------------------------------------------------------- */
@@ -175,12 +175,40 @@ int send_bomb(int fd,
     uint8_t target_id, 
     const msg_bomb_t *bomb)
 {
-return send_protocol_message(fd, 
-                MSG_BOMB, 
-                sender_id, 
-                target_id, 
-                sizeof(*bomb), 
-                bomb);
+    return send_protocol_message(fd, 
+        MSG_BOMB, 
+        sender_id, 
+        target_id, 
+        sizeof(*bomb), 
+        bomb);
+}
+
+/* --------------------------------------------------------------------- */
+int send_explosion_start(int fd, 
+    uint8_t sender_id, 
+    uint8_t target_id, 
+    const msg_explosion_start_t *expl_start)
+{
+    return send_protocol_message(fd, 
+        MSG_EXPLOSION_START, 
+        sender_id, 
+        target_id, 
+        sizeof(*expl_start), 
+        expl_start);
+}
+
+/* --------------------------------------------------------------------- */
+int send_explosion_end(int fd, 
+    uint8_t sender_id, 
+    uint8_t target_id, 
+    const msg_explosion_start_t *expl_end)
+{
+    return send_protocol_message(fd, 
+        MSG_EXPLOSION_END, 
+        sender_id, 
+        target_id, 
+        sizeof(*expl_end), 
+        expl_end);
 }
 
 /* --------------------------------------------------------------------- */

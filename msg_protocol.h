@@ -171,6 +171,7 @@ typedef struct {
  * Bomb cell uint16_t
  */
 typedef struct {
+    uint8_t radius;
     uint16_t cell_index;
 } msg_explosion_end_t;
 
