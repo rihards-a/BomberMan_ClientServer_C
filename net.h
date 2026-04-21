@@ -25,10 +25,16 @@ int send_move_attempt(int fd,
     uint8_t target_id,
     const msg_move_attempt_t *move);
 
+int send_moved(int fd,
+    uint8_t sender_id,
+    uint8_t target_id,
+    const msg_moved_t *moved);
+
 int recv_protocol_message(int fd,
     msg_generic_t *header,
     void **payload,
     size_t *payload_len);
+
     
 
 #endif

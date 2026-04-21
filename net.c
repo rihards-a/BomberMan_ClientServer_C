@@ -141,6 +141,20 @@ int send_move_attempt(int fd,
                                 move);
 }
 
+/* --------------------------------------------------------------------- */
+int send_moved(int fd, 
+            uint8_t sender_id, 
+            uint8_t target_id, 
+            const msg_moved_t *moved)
+{
+    return send_protocol_message(fd, 
+                                MSG_MOVED, 
+                                sender_id, 
+                                target_id, 
+                                sizeof(*moved), 
+                                moved);
+}
+
 
 /* --------------------------------------------------------------------- */
 /*                      beginning of receiver declaration                */
