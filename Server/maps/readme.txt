@@ -14,13 +14,15 @@ Seko laukuma karte. Elementi katrā laukuma šūnā:
     A spēlētāja pārvietošanās ātruma palielināšana +1, 
     R bumbas sprādziena rādiusa palielināšana +1,
     T bumbas atskaites laika palielināšana +1.
+    t bumbas lāzērs.
 
 Piemērs konfigurācijai failā:
-    6 8 3 5 3 4
+    6 9 3 5 3 4
     H 1 . . . . A . . 
-    . . S S . R . . . 
-    T . . 2 . . . . . 
-    . . . . . . . . . 
-    . . . . . . . . . 
-    . . . . . . . . . 
+    . . S S . R H H . 
+    T . . 2 . . . H 6 
+    . H . . . H . . . 
+    H . 3 . . . . 5 . 
+    7 . . . 4 H 8 . . 
+
 

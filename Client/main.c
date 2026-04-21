@@ -33,7 +33,7 @@ void resize_handler(int sig) {
     resized = 1;
 }
 
-static void handle_user_input();
+static void handle_user_input(int ch);
 static void draw_game_board();
 static void resize_game_board();
 static void handle_disconnect();
@@ -304,6 +304,27 @@ static void draw_game_board() {
                             }
                         }
                         break;
+                    
+                    case 't': 
+                    /* bomb explosion laser -> no border */
+                    for (int k = 0; k < BLOCK_SIZE; k++) {
+                        for (int l = 0; l < BLOCK_SIZE; l++) {
+                            int is_border = (k == 0 || k == BLOCK_SIZE - 1 ||
+                                            l == 0 || l == BLOCK_SIZE - 1);
+
+                            int y = i * BLOCK_SIZE + k + 1;
+                            int x = j * BLOCK_SIZE * 2 + l * 2 + 1;
+
+                            if (is_border) {
+                                mvwaddch(MAP_WIN, y, x,     ' ');
+                                mvwaddch(MAP_WIN, y, x + 1, ' ');
+                            } else {
+                                mvwaddch(MAP_WIN, y, x, ' ' | A_REVERSE);
+                                mvwaddch(MAP_WIN, y, x + 1, ' ' | A_REVERSE);
+                            }
+                        }
+                    }
+                    break;
 
                     /* ! ? @ $ ^ & ~ < .... too hard to see, might as well use numbers */
                     case '1': case '2': case '3': case '4': case '5': case '6': case '7': case '8':
