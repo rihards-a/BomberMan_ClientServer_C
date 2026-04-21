@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#define MAX_BOMBS 64
 #define MAX_PLAYERS 8
 #define MAX_NAME_LEN 30
 #define TICKS_PER_SECOND 20

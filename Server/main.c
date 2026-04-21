@@ -16,13 +16,20 @@
 msg_map_t *GAME_MAP;
 int CLIENT_FD;
 
-ssize_t send_all(int fd, const void *buf, size_t len);
-static void handle_client_messages(int fd);
-static void handle_disconnect();
-static void handle_error();
-static void dispatch(int fd, const msg_generic_t *header, const void *payload);
+uint8_t is_player_on_bomb[8];
+uint8_t bombs_active_for_player[8]; /* > 0 means player has bombs on the map */
 
-/* later create a pool of players and find by sender id or socket binding */
+typedef struct {
+    bomb_t bombs[MAX_BOMBS];
+    size_t size;
+} BombArray;
+static int bomb_array_push(BombArray *a, bomb_t bomb);
+static void bomb_array_explode(BombArray *a, size_t i);
+static void bomb_array_tick_second(BombArray *a);
+
+BombArray ACTIVE_BOMBS = { .size = 0 };
+
+/* later create a pool of players and find by sender id or by binding sockets to ids */
 player_t test_player = {
     .id = 1,
     .name = "Test Player",
@@ -36,8 +43,8 @@ player_t test_player = {
     .speed = 1
 };
 
-uint8_t player_on_bomb[8]; /* zeroed because .BSS */
 
+static void handle_client_messages(int fd);
 int main() {  
     int server_fd;  
     struct sockaddr_in server_addr, client_addr;  
@@ -100,8 +107,14 @@ int main() {
     }
 
     /* ------------------ main loop ------------------ */
+    uint8_t tick_count = 0;
     while (1) {  
         handle_client_messages(CLIENT_FD);
+
+        if (++tick_count >= TICKS_PER_SECOND) {
+            bomb_array_tick_second(&ACTIVE_BOMBS);
+            tick_count = 0;
+        }
 
         usleep(1000000 / TICKS_PER_SECOND); /* 1e6 for microseconds */
     }
@@ -112,22 +125,67 @@ int main() {
 
 /* -------------------------- function declarations --------------------------- */
 
+static int bomb_array_push(BombArray *a, bomb_t bomb)
+{
+    if (a->size >= MAX_BOMBS)
+        return -1;
+    a->bombs[a->size++] = bomb;
+    return 0;
+}
+
+static void bomb_array_explode(BombArray *a, size_t i)
+{
+    /* for now just remove the bomb */
+    printf("Bomb at (%d, %d) exploded!\n", a->bombs[i].row, a->bombs[i].col);
+    GAME_MAP->cells[make_cell_index(a->bombs[i].row, a->bombs[i].col, GAME_MAP->width)] = '.';
+
+    bombs_active_for_player[a->bombs[i].owner_id]--;
+    a->bombs[i] = a->bombs[a->size - 1];
+    a->size--;
+    /* send map resync to see */
+    if (send_map_message(CLIENT_FD, TARGET_SERVER, TARGET_BROADCAST, GAME_MAP) < 0) {
+        perror("Failed to send map message");
+    }
+}
+
+static void bomb_array_tick_second(BombArray *a)
+{
+    size_t i = 0;
+
+    while (i < a->size) {
+        a->bombs[i].timer_ticks--;
+
+        if (a->bombs[i].timer_ticks <= 0) {
+            bomb_array_explode(a, i);
+        } else {
+            i++;
+        }
+    }
+}
+
 static void handle_bomb_attempt(const msg_generic_t *header, const msg_bomb_attempt_t *bomb_msg) {
     if (GAME_MAP->cells[bomb_msg->cell_index] == '0' + test_player.id) {
-        player_on_bomb[test_player.id] = 1;
+        if (bombs_active_for_player[test_player.id] >= test_player.bomb_count) {
+            printf("Player %d cannot place more bombs (active bombs: %d)\n", test_player.id, bombs_active_for_player[test_player.id]);
+            return;
+        }
+
+        bombs_active_for_player[test_player.id]++;
+        is_player_on_bomb[test_player.id] = 1;
+
+        bomb_array_push(&ACTIVE_BOMBS, (bomb_t){
+            .active = true,
+            .owner_id = test_player.id,
+            .row = test_player.row,
+            .col = test_player.col,
+            .radius = test_player.bomb_radius,
+            .timer_ticks = test_player.bomb_timer_ticks
+        });
+
         /* figure out overlay later - doesn't work on low resolution 
             currently vizualize the bomb on top of the player */
         GAME_MAP->cells[bomb_msg->cell_index] = 'B'; /* mark bomb on the map */
-
-        /* debug print map */
-        for (int i = 0; i < GAME_MAP->height; i++) {
-            for (int j = 0; j < GAME_MAP->width; j++) {
-                char cell = GAME_MAP->cells[i * GAME_MAP->width + j];
-                printf("%c ", cell);
-            }
-            printf("\n");
-        }
-
+    
         printf("Player %d placed a bomb at cell index %d\n", test_player.id, bomb_msg->cell_index);
         
         if (send_bomb(CLIENT_FD, TARGET_SERVER, TARGET_BROADCAST, &(msg_bomb_t){ .player_id = test_player.id, .cell_index = bomb_msg->cell_index }) < 0) {
@@ -173,11 +231,11 @@ static void handle_move_attempt(const msg_generic_t *header, const msg_move_atte
     uint16_t new_pos = make_cell_index(tmp_row, tmp_col, GAME_MAP->width);
     /* check if the new position is valid (not a wall) */
     if (GAME_MAP->cells[new_pos] == '.') {
-        if (!player_on_bomb[test_player.id]) {
+        if (!is_player_on_bomb[test_player.id]) {
             GAME_MAP->cells[pos] = '.'; /* clear old position */
         } else {
             /* player is moving off the bomb, keep it on screen */
-            player_on_bomb[test_player.id] = 0;
+            is_player_on_bomb[test_player.id] = 0;
         }
         GAME_MAP->cells[new_pos] = '0' + test_player.id; /* move player to new position */
         test_player.row = tmp_row;
