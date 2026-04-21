@@ -4,6 +4,12 @@
 #include <sys/types.h>
 #include "msg_protocol.h"
 
+#define DECL_SEND_FN(name, type)                         \
+int send_##name(int fd,                                  \
+                uint8_t sender_id,                       \
+                uint8_t target_id,                       \
+                const type *name)
+
 int send_protocol_message(int fd,
     uint8_t msg_type,
     uint8_t sender_id,
@@ -11,48 +17,21 @@ int send_protocol_message(int fd,
     size_t payload_len,
     const void *payload);
 
-int send_map_message(int fd,
-    uint8_t sender_id,
-    uint8_t target_id,
-    const msg_map_t *map);
+DECL_SEND_FN(map_message, msg_map_t);
+DECL_SEND_FN(move_attempt, msg_move_attempt_t);
+DECL_SEND_FN(moved, msg_moved_t);
+DECL_SEND_FN(bomb_attempt, msg_bomb_attempt_t);
+DECL_SEND_FN(bomb, msg_bomb_t);
+DECL_SEND_FN(explosion_start, msg_explosion_start_t);
+DECL_SEND_FN(explosion_end, msg_explosion_end_t);
 
 int send_ping_message(int fd,
     uint8_t sender_id,
     uint8_t target_id);
 
-int send_move_attempt(int fd,
-    uint8_t sender_id,
-    uint8_t target_id,
-    const msg_move_attempt_t *move);
-
-int send_moved(int fd,
-    uint8_t sender_id,
-    uint8_t target_id,
-    const msg_moved_t *moved);
-
-int send_bomb_attempt(int fd, 
-    uint8_t sender_id, 
-    uint8_t target_id, 
-    const msg_bomb_attempt_t *bomb_attempt);
-
-int send_bomb(int fd, 
-    uint8_t sender_id, 
-    uint8_t target_id, 
-    const msg_bomb_t *bomb);
-
 int recv_protocol_message(int fd,
     msg_generic_t *header,
     void **payload,
     size_t *payload_len);
-
-int send_explosion_start(int fd, 
-    uint8_t sender_id, 
-    uint8_t target_id, 
-    const msg_explosion_start_t *expl_start);
-
-int send_explosion_end(int fd, 
-    uint8_t sender_id, 
-    uint8_t target_id, 
-    const msg_explosion_start_t *expl_end);
 
 #endif

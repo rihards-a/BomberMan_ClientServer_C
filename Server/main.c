@@ -166,7 +166,7 @@ static void bomb_array_explode(BombArray *a, size_t i)
     a->bombs[i] = a->bombs[a->size - 1];
     a->size--;
     
-    if (send_explosion_end(CLIENT_FD, TARGET_SERVER, TARGET_BROADCAST, &(msg_explosion_start_t){
+    if (send_explosion_end(CLIENT_FD, TARGET_SERVER, TARGET_BROADCAST, &(msg_explosion_end_t){
         .cell_index = cell_index,
         .radius = a->bombs[i].radius
     }) < 0) {

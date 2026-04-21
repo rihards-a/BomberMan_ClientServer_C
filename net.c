@@ -12,6 +12,22 @@
     case MSG_ID: \
         return recv_fixed_message(fd, payload, payload_len, sizeof(TYPE))
 
+#define DEFINE_SEND_FN(name, msg_const, type)                              \
+int send_##name(int fd,                                                    \
+                uint8_t sender_id,                                         \
+                uint8_t target_id,                                         \
+                const type *payload)                                       \
+{                                                                          \
+    return send_protocol_message(                                          \
+        fd,                                                                \
+        msg_const,                                                         \
+        sender_id,                                                         \
+        target_id,                                                         \
+        sizeof(*payload),                                                  \
+        payload                                                            \
+    );                                                                     \
+}
+
 static ssize_t send_all(int fd, const void *buf, size_t len)
 {
     size_t total = 0;
@@ -97,7 +113,6 @@ int send_protocol_message(int fd,
 /*              beginning of sending different prot msgs                 */
 /* --------------------------------------------------------------------- */
 
-/* --------------------------------------------------------------------- */
 int send_map_message(int fd, 
     uint8_t sender_id, 
     uint8_t target_id, 
@@ -113,7 +128,6 @@ int send_map_message(int fd,
         map_len,
         map);
 }
-
 /* --------------------------------------------------------------------- */
 int send_ping_message(int fd, 
     uint8_t sender_id, 
@@ -128,88 +142,12 @@ int send_ping_message(int fd,
 }
 
 /* --------------------------------------------------------------------- */
-int send_move_attempt(int fd, 
-    uint8_t sender_id, 
-    uint8_t target_id, 
-    const msg_move_attempt_t *move)
-{
-    return send_protocol_message(fd, 
-        MSG_MOVE_ATTEMPT, 
-        sender_id, 
-        target_id, 
-        sizeof(*move), 
-        move);
-}
-
-/* --------------------------------------------------------------------- */
-int send_moved(int fd, 
-    uint8_t sender_id, 
-    uint8_t target_id, 
-    const msg_moved_t *moved)
-{
-    return send_protocol_message(fd, 
-        MSG_MOVED, 
-        sender_id, 
-        target_id, 
-        sizeof(*moved), 
-        moved);
-}
-
-/* --------------------------------------------------------------------- */
-int send_bomb_attempt(int fd, 
-    uint8_t sender_id, 
-    uint8_t target_id, 
-    const msg_bomb_attempt_t *bomb_attempt)
-{
-    return send_protocol_message(fd, 
-        MSG_BOMB_ATTEMPT, 
-        sender_id, 
-        target_id, 
-        sizeof(*bomb_attempt), 
-        bomb_attempt);
-}
-
-/* --------------------------------------------------------------------- */
-int send_bomb(int fd, 
-    uint8_t sender_id, 
-    uint8_t target_id, 
-    const msg_bomb_t *bomb)
-{
-    return send_protocol_message(fd, 
-        MSG_BOMB, 
-        sender_id, 
-        target_id, 
-        sizeof(*bomb), 
-        bomb);
-}
-
-/* --------------------------------------------------------------------- */
-int send_explosion_start(int fd, 
-    uint8_t sender_id, 
-    uint8_t target_id, 
-    const msg_explosion_start_t *expl_start)
-{
-    return send_protocol_message(fd, 
-        MSG_EXPLOSION_START, 
-        sender_id, 
-        target_id, 
-        sizeof(*expl_start), 
-        expl_start);
-}
-
-/* --------------------------------------------------------------------- */
-int send_explosion_end(int fd, 
-    uint8_t sender_id, 
-    uint8_t target_id, 
-    const msg_explosion_start_t *expl_end)
-{
-    return send_protocol_message(fd, 
-        MSG_EXPLOSION_END, 
-        sender_id, 
-        target_id, 
-        sizeof(*expl_end), 
-        expl_end);
-}
+DEFINE_SEND_FN(move_attempt, MSG_MOVE_ATTEMPT, msg_move_attempt_t);
+DEFINE_SEND_FN(moved, MSG_MOVED, msg_moved_t);
+DEFINE_SEND_FN(bomb_attempt, MSG_BOMB_ATTEMPT, msg_bomb_attempt_t);
+DEFINE_SEND_FN(bomb, MSG_BOMB, msg_bomb_t);
+DEFINE_SEND_FN(explosion_start, MSG_EXPLOSION_START, msg_explosion_start_t);
+DEFINE_SEND_FN(explosion_end, MSG_EXPLOSION_END, msg_explosion_end_t);
 
 /* --------------------------------------------------------------------- */
 /*                      beginning of receiver declaration                */
