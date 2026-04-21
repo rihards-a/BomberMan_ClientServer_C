@@ -36,6 +36,8 @@ player_t test_player = {
     .speed = 1
 };
 
+uint8_t player_on_bomb[8]; /* zeroed because .BSS */
+
 int main() {  
     int server_fd;  
     struct sockaddr_in server_addr, client_addr;  
@@ -109,6 +111,33 @@ int main() {
 
 
 /* -------------------------- function declarations --------------------------- */
+
+static void handle_bomb_attempt(const msg_generic_t *header, const msg_bomb_attempt_t *bomb_msg) {
+    if (GAME_MAP->cells[bomb_msg->cell_index] == '0' + test_player.id) {
+        player_on_bomb[test_player.id] = 1;
+        /* figure out overlay later - doesn't work on low resolution 
+            currently vizualize the bomb on top of the player */
+        GAME_MAP->cells[bomb_msg->cell_index] = 'B'; /* mark bomb on the map */
+
+        /* debug print map */
+        for (int i = 0; i < GAME_MAP->height; i++) {
+            for (int j = 0; j < GAME_MAP->width; j++) {
+                char cell = GAME_MAP->cells[i * GAME_MAP->width + j];
+                printf("%c ", cell);
+            }
+            printf("\n");
+        }
+
+        printf("Player %d placed a bomb at cell index %d\n", test_player.id, bomb_msg->cell_index);
+        
+        if (send_bomb(CLIENT_FD, TARGET_SERVER, TARGET_BROADCAST, &(msg_bomb_t){ .player_id = test_player.id, .cell_index = bomb_msg->cell_index }) < 0) {
+            perror("Failed to send bomb message");
+        }
+    } else {
+        printf("Invalid bomb placement by player %d (header id: %d) at cell index %d\n", test_player.id, header->sender_id, bomb_msg->cell_index);
+    }
+}
+
 static void handle_move_attempt(const msg_generic_t *header, const msg_move_attempt_t *move_msg) {
     printf("Received MOVE_ATTEMPT from client: %d! Direction: %c\n", header->sender_id, move_msg->direction);
     uint16_t pos = make_cell_index(test_player.row, test_player.col, GAME_MAP->width);
@@ -144,7 +173,12 @@ static void handle_move_attempt(const msg_generic_t *header, const msg_move_atte
     uint16_t new_pos = make_cell_index(tmp_row, tmp_col, GAME_MAP->width);
     /* check if the new position is valid (not a wall) */
     if (GAME_MAP->cells[new_pos] == '.') {
-        GAME_MAP->cells[pos] = '.'; /* clear old position */
+        if (!player_on_bomb[test_player.id]) {
+            GAME_MAP->cells[pos] = '.'; /* clear old position */
+        } else {
+            /* player is moving off the bomb, keep it on screen */
+            player_on_bomb[test_player.id] = 0;
+        }
         GAME_MAP->cells[new_pos] = '0' + test_player.id; /* move player to new position */
         test_player.row = tmp_row;
         test_player.col = tmp_col;
@@ -180,6 +214,11 @@ static void dispatch(int fd, const msg_generic_t *header, const void *payload) {
         
         case MSG_MOVE_ATTEMPT: {
             handle_move_attempt(header, (const msg_move_attempt_t *)payload);
+            break;
+        }
+
+        case MSG_BOMB_ATTEMPT: {
+            handle_bomb_attempt(header, (const msg_bomb_attempt_t *)payload);
             break;
         }
     }

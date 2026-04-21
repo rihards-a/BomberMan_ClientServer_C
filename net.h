@@ -30,6 +30,16 @@ int send_moved(int fd,
     uint8_t target_id,
     const msg_moved_t *moved);
 
+int send_bomb_attempt(int fd, 
+    uint8_t sender_id, 
+    uint8_t target_id, 
+    const msg_bomb_attempt_t *bomb_attempt);
+
+int send_bomb(int fd, 
+    uint8_t sender_id, 
+    uint8_t target_id, 
+    const msg_bomb_t *bomb);
+
 int recv_protocol_message(int fd,
     msg_generic_t *header,
     void **payload,

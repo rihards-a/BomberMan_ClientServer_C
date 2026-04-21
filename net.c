@@ -155,6 +155,33 @@ int send_moved(int fd,
                                 moved);
 }
 
+/* --------------------------------------------------------------------- */
+int send_bomb_attempt(int fd, 
+    uint8_t sender_id, 
+    uint8_t target_id, 
+    const msg_bomb_attempt_t *bomb_attempt)
+{
+return send_protocol_message(fd, 
+                MSG_BOMB_ATTEMPT, 
+                sender_id, 
+                target_id, 
+                sizeof(*bomb_attempt), 
+                bomb_attempt);
+}
+
+/* --------------------------------------------------------------------- */
+int send_bomb(int fd, 
+    uint8_t sender_id, 
+    uint8_t target_id, 
+    const msg_bomb_t *bomb)
+{
+return send_protocol_message(fd, 
+                MSG_BOMB, 
+                sender_id, 
+                target_id, 
+                sizeof(*bomb), 
+                bomb);
+}
 
 /* --------------------------------------------------------------------- */
 /*                      beginning of receiver declaration                */

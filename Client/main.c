@@ -127,6 +127,13 @@ int main() {
 
 /* -------------------------- function declarations --------------------------- */
 
+static void handle_bomb(const msg_generic_t *header, const msg_bomb_t *bomb_msg) {
+    (void)header; /* might be useful later */
+    uint16_t cell_index = bomb_msg->cell_index;
+    /* for testing, just mark the bomb on the map with a 'B' */
+    GAME_MAP.cells[cell_index] = 'B';
+}
+
 static void handle_moved(const msg_generic_t *header, const msg_moved_t *moved_msg) {
     (void)header; /* might be useful later */
     uint16_t cur_pos = make_cell_index(TEST_PLAYER.row, TEST_PLAYER.col, GAME_MAP.width);
@@ -179,6 +186,9 @@ static void dispatch(int fd, const msg_generic_t *header, const void *payload) {
         case MSG_MOVED:
             handle_moved(header, (const msg_moved_t *)payload);
             break;
+        case MSG_BOMB:
+            handle_bomb(header, (const msg_bomb_t *)payload);
+            break;
     }
 }
 
@@ -218,7 +228,10 @@ static void handle_user_input(int ch) {
          || ch == KEY_LEFT || ch == KEY_RIGHT) {
             handle_movement_input(ch);
         }
-        if (ch == ' ')       { /* space - place bomb */ }
+        if (ch == ' ') {
+            msg_bomb_attempt_t bomb_msg = { .cell_index = make_cell_index(TEST_PLAYER.row, TEST_PLAYER.col, GAME_MAP.width) };
+            send_bomb_attempt(CLIENT_FD, TEST_PLAYER.id, 255, &bomb_msg);
+        }
         if (ch == 27)        { /* ESC */ exit(1); }
     }
 }
