@@ -20,11 +20,10 @@ uint8_t is_player_on_bomb[8];
 uint8_t bombs_active_for_player[8]; /* > 0 means player has bombs on the map */
 uint16_t BOMB_DETONATION_TICKS = 20; /* 1 second, should be set on map init later */
 uint8_t player_move_cooldown[8]; /* ticks until player can move again, based on their speed */
-uint8_t player_speed[8]; /* player speed, set on map init later */
 
-void init_players(void) {
+
+void init_players(void) { // maybe put with the other functions
     for (int i = 0; i < MAX_PLAYERS; i++) {
-        player_speed[i] = 2;  /* default: 4 blocks/sec */
         player_move_cooldown[i] = 0;
     }
 }
@@ -44,14 +43,14 @@ BombArray ACTIVE_BOMBS = { .size = 0 };
 player_t test_player = {
     .id = 1,
     .name = "Test Player",
-    .row = 0,
+    .row = 1,
     .col = 1,
-    .alive = true,
+    .lives = 1,
     .ready = true,
     .bomb_count = 2,
-    .bomb_radius = 3,
+    .bomb_radius = 1,
     .bomb_timer_ticks = 20, /* 1 second */
-    .speed = 1
+    .speed = 3
 };
 
 
@@ -90,7 +89,7 @@ int main() {
     /* -----------------test-input-map-------------------- */
     uint8_t height, width, c;
     /* make sure you're running it from the right directory (as ./server)*/
-    FILE *fp = fopen("maps/test_map_1.txt", "r");
+    FILE *fp = fopen("maps/test_map_2.txt", "r");
     if (!fp) return 1;
 
     fscanf(fp, "%hhd %hhd", &height, &width);
@@ -331,6 +330,23 @@ static void handle_bomb_attempt(const msg_generic_t *header, const msg_bomb_atte
     }
 }
 
+/*-------bonus logic-------*/
+int is_bonus_cell(char cell) {
+    return cell == 'A' || cell == 'T' || cell == 'R';
+}
+
+static void apply_bonus(uint8_t player_id, char bonus_type, uint16_t new_pos) {
+    switch (bonus_type) {
+        case 'A': test_player.speed += 1; break;
+        case 'T': test_player.bomb_timer_ticks += 10;  break;
+        case 'R': test_player.bomb_radius += 1;          break;
+    }
+    if (send_bonus_retrieved(CLIENT_FD, TARGET_SERVER, TARGET_BROADCAST, &(msg_bonus_retrieved_t){ .player_id = player_id, .cell_index = new_pos }) < 0) {
+        perror("Failed to send bonus retrieved message");
+    }
+
+}
+
 static void handle_move_attempt(const msg_generic_t *header, const msg_move_attempt_t *move_msg) {
     printf("Received MOVE_ATTEMPT from client: %d! Direction: %c\n", header->sender_id, move_msg->direction);
     if (player_move_cooldown[header->sender_id] > 0) {
@@ -340,7 +356,7 @@ static void handle_move_attempt(const msg_generic_t *header, const msg_move_atte
     }
     /* reset cooldown based on this player's speed */
     /* speed 4 -> cooldown = 20/4 = 5 ticks between moves */
-    player_move_cooldown[header->sender_id] = (uint8_t)(TICKS_PER_SECOND / player_speed[header->sender_id]);
+    player_move_cooldown[header->sender_id] = (uint8_t)(TICKS_PER_SECOND / test_player.speed); // TODO: replace test_player with lookup by header->sender_id when multiple players are implemented
 
     uint16_t pos = make_cell_index(test_player.row, test_player.col, GAME_MAP->width);
     int16_t tmp_row = test_player.row;
@@ -374,12 +390,15 @@ static void handle_move_attempt(const msg_generic_t *header, const msg_move_atte
     }
     uint16_t new_pos = make_cell_index(tmp_row, tmp_col, GAME_MAP->width);
     /* check if the new position is valid (not a wall) */
-    if (GAME_MAP->cells[new_pos] == '.') {
+    if (GAME_MAP->cells[new_pos] == '.' || is_bonus_cell(GAME_MAP->cells[new_pos])) {
         if (!is_player_on_bomb[test_player.id]) {
             GAME_MAP->cells[pos] = '.'; /* clear old position */
         } else {
             /* player is moving off the bomb, keep it on screen */
             is_player_on_bomb[test_player.id] = 0;
+        }
+        if (is_bonus_cell(GAME_MAP->cells[new_pos])) {
+            apply_bonus(test_player.id, GAME_MAP->cells[new_pos], new_pos);
         }
         GAME_MAP->cells[new_pos] = '0' + test_player.id; /* move player to new position */
         test_player.row = tmp_row;
@@ -388,8 +407,7 @@ static void handle_move_attempt(const msg_generic_t *header, const msg_move_atte
         if (send_moved(CLIENT_FD, TARGET_SERVER, TARGET_BROADCAST, &(msg_moved_t){ .player_id = test_player.id, .cell_index = new_pos }) < 0) {
             perror("Failed to send moved message");
         }
-    } 
-    else {
+    } else {
         blocked_move:
             printf("Move blocked to position (%d, %d)\n", tmp_row, tmp_col);
     }

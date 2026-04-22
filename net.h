@@ -24,6 +24,9 @@ DECL_SEND_FN(bomb_attempt, msg_bomb_attempt_t);
 DECL_SEND_FN(bomb, msg_bomb_t);
 DECL_SEND_FN(explosion_start, msg_explosion_start_t);
 DECL_SEND_FN(explosion_end, msg_explosion_end_t);
+DECL_SEND_FN(bonus_available, msg_bonus_available_t);
+DECL_SEND_FN(bonus_retrieved, msg_bonus_retrieved_t);
+DECL_SEND_FN(block_destroyed, msg_block_destroyed_t);
 
 int send_ping_message(int fd,
     uint8_t sender_id,

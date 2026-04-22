@@ -62,13 +62,13 @@ typedef struct {
     char name[MAX_NAME_LEN + 1];
     uint16_t row;
     uint16_t col;
-    bool alive;
+    uint8_t lives;
     bool ready;
 
     uint8_t bomb_count;
     uint8_t bomb_radius;
     uint16_t bomb_timer_ticks;
-    uint16_t speed;
+    uint8_t speed;
 } player_t;
 
 typedef struct {

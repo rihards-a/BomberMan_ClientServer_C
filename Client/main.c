@@ -38,12 +38,12 @@ player_t TEST_PLAYER = {
     .name = "Test Player",
     .row = 0,
     .col = 1,
-    .alive = true,
+    .lives = 1,
     .ready = true,
     .bomb_count = 2,
-    .bomb_radius = 3,
+    .bomb_radius = 1,
     .bomb_timer_ticks = 20,
-    .speed = 1
+    .speed = 4
 };
 
 static void handle_user_input(int ch);
@@ -75,23 +75,27 @@ int main() {
     }  
     printf("Server connection successful\n");  
 
-    /* receive map data */
-    /* implement init receiving later, for now const until receive the server map in loop */
-    /* the size has to be at least equal to the map the server will send, 
-        otherwise will overflow from memcpy later on */
-    GAME_MAP.height = 6;
-    GAME_MAP.width = 9;
-    GAME_MAP.cells = malloc(GAME_MAP.height * GAME_MAP.width);
-        /* . = empty, H = hard wall, 1-8 = player IDs */
-    char *test_map = "........."
-                     ".H.H.H.H."
-                     ".1......."
-                     ".H.H.H.H."
-                     ".2......."
-                     ".........";
-    memcpy(GAME_MAP.cells, test_map, 54);
-    /* implement init receiving later, for now const until receive the server map in loop */
     
+    // /* receive map data */
+    // /* implement init receiving later, for now const until receive the server map in loop */
+    // /* the size has to be at least equal to the map the server will send, 
+    //     otherwise will overflow from memcpy later on */
+    // GAME_MAP.height = 6;
+    // GAME_MAP.width = 9;
+    // GAME_MAP.cells = malloc(GAME_MAP.height * GAME_MAP.width);
+    //     /* . = empty, H = hard wall, 1-8 = player IDs */
+    // char *test_map = "........."
+    //                  ".H.H.H.H."
+    //                  ".1......."
+    //                  ".H.H.H.H."
+    //                  ".2......."
+    //                  ".........";
+    // memcpy(GAME_MAP.cells, test_map, 54);
+    // /* implement init receiving later, for now const until receive the server map in loop */
+    GAME_MAP.height = 120;
+    GAME_MAP.width = 160;
+    GAME_MAP.cells = malloc(GAME_MAP.height * GAME_MAP.width);
+    memset(GAME_MAP.cells, '.', GAME_MAP.height * GAME_MAP.width);
 
     initscr();
     cbreak();       /* disables line buffering */

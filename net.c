@@ -148,6 +148,9 @@ DEFINE_SEND_FN(bomb_attempt, MSG_BOMB_ATTEMPT, msg_bomb_attempt_t);
 DEFINE_SEND_FN(bomb, MSG_BOMB, msg_bomb_t);
 DEFINE_SEND_FN(explosion_start, MSG_EXPLOSION_START, msg_explosion_start_t);
 DEFINE_SEND_FN(explosion_end, MSG_EXPLOSION_END, msg_explosion_end_t);
+DEFINE_SEND_FN(bonus_available, MSG_BONUS_AVAILABLE, msg_bonus_available_t);
+DEFINE_SEND_FN(bonus_retrieved, MSG_BONUS_RETRIEVED, msg_bonus_retrieved_t);
+DEFINE_SEND_FN(block_destroyed, MSG_BLOCK_DESTROYED, msg_block_destroyed_t);
 
 /* --------------------------------------------------------------------- */
 /*                      beginning of receiver declaration                */
