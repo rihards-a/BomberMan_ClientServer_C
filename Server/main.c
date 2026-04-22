@@ -140,7 +140,51 @@ static void bomb_array_explode(BombArray *a, size_t i)
             +1 added because the while loop that ticks these bombs decrements 1 on check */
         a->bombs[i].timer_ticks = test_player.bomb_timer_ticks + 1; 
 
-        GAME_MAP->cells[cell_index] = 't';
+        GAME_MAP->cells[cell_index] = '@';
+
+        uint8_t blocked_up = 0, blocked_down = 0, blocked_left = 0, blocked_right = 0;
+        int32_t     total = GAME_MAP->width * GAME_MAP->height;
+        int32_t     ci    = cell_index;
+        int32_t     crow  = ci / GAME_MAP->width;
+
+        /* draw the explosion */
+        for (uint8_t r = 1; r <= a->bombs[i].radius; r++) {
+            uint8_t tip = (r == a->bombs[i].radius);
+        
+            /* UP */
+            if (!blocked_up) {
+                int32_t idx = ci - r * GAME_MAP->width;
+                if (idx < 0)                               blocked_up = 1;
+                else if (GAME_MAP->cells[idx] == 'H')       blocked_up = 1;
+                else if (GAME_MAP->cells[idx] == 'S')       blocked_up = 1; /* TODO: soft wall damage */
+                else GAME_MAP->cells[idx] = tip ? '^' : '|';
+            }
+            /* DOWN */
+            if (!blocked_down) {
+                int32_t idx = ci + r * GAME_MAP->width;
+                if (idx >= total)                          blocked_down = 1;
+                else if (GAME_MAP->cells[idx] == 'H')       blocked_down = 1;
+                else if (GAME_MAP->cells[idx] == 'S')       blocked_down = 1;
+                else GAME_MAP->cells[idx] = tip ? 'v' : '|';
+            }
+            /* LEFT */
+            if (!blocked_left) {
+                int32_t idx = ci - r;
+                if (idx < 0 || idx / GAME_MAP->width != crow)    blocked_left = 1;
+                else if (GAME_MAP->cells[idx] == 'H')            blocked_left = 1;
+                else if (GAME_MAP->cells[idx] == 'S')            blocked_left = 1;
+                else GAME_MAP->cells[idx] = tip ? '<' : '-';
+            }
+            /* RIGHT */
+            if (!blocked_right) {
+                int32_t idx = ci + r;
+                if (idx >= total || idx / GAME_MAP->width != crow)   blocked_right = 1;
+                else if (GAME_MAP->cells[idx] == 'H')                blocked_right = 1;
+                else if (GAME_MAP->cells[idx] == 'S')                blocked_right = 1;
+                else GAME_MAP->cells[idx] = tip ? '>' : '-';
+            }
+        }  
+
         /* send explosion start message to clients */
         printf("Bomb at (%d, %d) started exploding!\n", a->bombs[i].row, a->bombs[i].col);
         if (send_explosion_start(CLIENT_FD, TARGET_SERVER, TARGET_BROADCAST, &(msg_explosion_start_t){
@@ -151,9 +195,50 @@ static void bomb_array_explode(BombArray *a, size_t i)
         }
         return;
     }
-    /* for now just remove the bomb */
     printf("Bomb at (%d, %d) exploded!\n", a->bombs[i].row, a->bombs[i].col);
-    GAME_MAP->cells[cell_index] = '.';
+
+    uint8_t blocked_up = 0, blocked_down = 0, blocked_left = 0, blocked_right = 0;
+    int     total = GAME_MAP->width * GAME_MAP->height;
+    int     ci    = cell_index;
+    int     crow  = ci / GAME_MAP->width;
+    
+    GAME_MAP->cells[ci] = '.';
+
+    /* TODO: 
+        check for explosion chains (hit B tile)
+        check for players (hit 1-8 tile) create function for damaging */
+    for (int r = 1; r <= a->bombs[i].radius; r++) {
+        /* UP */
+        if (!blocked_up) {
+            int idx = ci - r * GAME_MAP->width;
+            if (idx < 0 || GAME_MAP->cells[idx] == 'H')        blocked_up = 1;
+            else if (GAME_MAP->cells[idx] == 'S')             { GAME_MAP->cells[idx] = '.'; blocked_up = 1; }
+            else                                               GAME_MAP->cells[idx] = '.';
+        }
+        /* DOWN */
+        if (!blocked_down) {
+            int idx = ci + r * GAME_MAP->width;
+            if (idx >= total || GAME_MAP->cells[idx] == 'H')   blocked_down = 1;
+            else if (GAME_MAP->cells[idx] == 'S')             { GAME_MAP->cells[idx] = '.'; blocked_down = 1; }
+            else                                               GAME_MAP->cells[idx] = '.';
+        }
+        /* LEFT */
+        if (!blocked_left) {
+            int idx = ci - r;
+            if (idx < 0 || idx / GAME_MAP->width != crow ||
+                GAME_MAP->cells[idx] == 'H')                    blocked_left = 1;
+            else if (GAME_MAP->cells[idx] == 'S')             { GAME_MAP->cells[idx] = '.'; blocked_left = 1; }
+            else                                               GAME_MAP->cells[idx] = '.';
+        }
+        /* RIGHT */
+        if (!blocked_right) {
+            int idx = ci + r;
+            if (idx >= total || idx / GAME_MAP->width != crow ||
+                GAME_MAP->cells[idx] == 'H')                    blocked_right = 1;
+            else if (GAME_MAP->cells[idx] == 'S')             { GAME_MAP->cells[idx] = '.'; blocked_right = 1; }
+            else                                               GAME_MAP->cells[idx] = '.';
+        }
+    }
 
     bombs_active_for_player[a->bombs[i].owner_id]--;
     a->bombs[i] = a->bombs[a->size - 1];

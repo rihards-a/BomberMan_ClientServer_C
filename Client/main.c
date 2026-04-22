@@ -129,14 +129,96 @@ int main() {
 
 static void handle_explosion_end(const msg_generic_t *header, const msg_explosion_end_t *expl_end) {
     (void)header; /* might be useful later */
-    /* for testing, just clear the explosion center */
+    
     GAME_MAP.cells[expl_end->cell_index] = '.';
+
+    uint8_t blocked_up = 0, blocked_down = 0, blocked_left = 0, blocked_right = 0;
+    int     total = GAME_MAP.width * GAME_MAP.height;
+    int     ci    = expl_end->cell_index;
+    int     crow  = ci / GAME_MAP.width;
+
+    for (int r = 1; r <= expl_end->radius; r++) {
+        /* UP */
+        if (!blocked_up) {
+            int idx = ci - r * GAME_MAP.width;
+            if (idx < 0 || GAME_MAP.cells[idx] == 'H')        blocked_up = 1;
+            else if (GAME_MAP.cells[idx] == 'S')             { GAME_MAP.cells[idx] = '.'; blocked_up = 1; }
+            else                                               GAME_MAP.cells[idx] = '.';
+        }
+        /* DOWN */
+        if (!blocked_down) {
+            int idx = ci + r * GAME_MAP.width;
+            if (idx >= total || GAME_MAP.cells[idx] == 'H')   blocked_down = 1;
+            else if (GAME_MAP.cells[idx] == 'S')             { GAME_MAP.cells[idx] = '.'; blocked_down = 1; }
+            else                                               GAME_MAP.cells[idx] = '.';
+        }
+        /* LEFT */
+        if (!blocked_left) {
+            int idx = ci - r;
+            if (idx < 0 || idx / GAME_MAP.width != crow ||
+                GAME_MAP.cells[idx] == 'H')                    blocked_left = 1;
+            else if (GAME_MAP.cells[idx] == 'S')             { GAME_MAP.cells[idx] = '.'; blocked_left = 1; }
+            else                                               GAME_MAP.cells[idx] = '.';
+        }
+        /* RIGHT */
+        if (!blocked_right) {
+            int idx = ci + r;
+            if (idx >= total || idx / GAME_MAP.width != crow ||
+                GAME_MAP.cells[idx] == 'H')                    blocked_right = 1;
+            else if (GAME_MAP.cells[idx] == 'S')             { GAME_MAP.cells[idx] = '.'; blocked_right = 1; }
+            else                                               GAME_MAP.cells[idx] = '.';
+        }
+    }
 }
 
 static void handle_explosion_start(const msg_generic_t *header, const msg_explosion_start_t *expl_start) {
     (void)header; /* might be useful later */
-    /* for testing, just mark the explosion center */
-    GAME_MAP.cells[expl_start->cell_index] = 't';
+    
+    GAME_MAP.cells[expl_start->cell_index] = '@';
+
+    uint8_t blocked_up = 0, blocked_down = 0, blocked_left = 0, blocked_right = 0;
+    int32_t     total = GAME_MAP.width * GAME_MAP.height;
+    int32_t     ci    = expl_start->cell_index;
+    int32_t     crow  = ci / GAME_MAP.width;
+
+    /* draw the explosion */
+    for (uint8_t r = 1; r <= expl_start->radius; r++) {
+        uint8_t tip = (r == expl_start->radius);
+    
+        /* UP */
+        if (!blocked_up) {
+            int32_t idx = ci - r * GAME_MAP.width;
+            if (idx < 0)                               blocked_up = 1;
+            else if (GAME_MAP.cells[idx] == 'H')       blocked_up = 1;
+            else if (GAME_MAP.cells[idx] == 'S')       blocked_up = 1; /* TODO: soft wall damage */
+            else GAME_MAP.cells[idx] = tip ? '^' : '|';
+        }
+        /* DOWN */
+        if (!blocked_down) {
+            int32_t idx = ci + r * GAME_MAP.width;
+            if (idx >= total)                          blocked_down = 1;
+            else if (GAME_MAP.cells[idx] == 'H')       blocked_down = 1;
+            else if (GAME_MAP.cells[idx] == 'S')       blocked_down = 1;
+            else GAME_MAP.cells[idx] = tip ? 'v' : '|';
+        }
+        /* LEFT */
+        if (!blocked_left) {
+            int32_t idx = ci - r;
+            if (idx < 0 || idx / GAME_MAP.width != crow)    blocked_left = 1;
+            else if (GAME_MAP.cells[idx] == 'H')            blocked_left = 1;
+            else if (GAME_MAP.cells[idx] == 'S')            blocked_left = 1;
+            else GAME_MAP.cells[idx] = tip ? '<' : '-';
+        }
+        /* RIGHT */
+        if (!blocked_right) {
+            int32_t idx = ci + r;
+            if (idx >= total || idx / GAME_MAP.width != crow)   blocked_right = 1;
+            else if (GAME_MAP.cells[idx] == 'H')                blocked_right = 1;
+            else if (GAME_MAP.cells[idx] == 'S')                blocked_right = 1;
+            else GAME_MAP.cells[idx] = tip ? '>' : '-';
+        }
+    }  
+
 }
 
 static void handle_bomb(const msg_generic_t *header, const msg_bomb_t *bomb_msg) {
@@ -316,8 +398,6 @@ static void draw_game_board() {
     /*-------------------------------------------------------------------*/
     /*                          MAIN GAME BOARD                          */
     /*-------------------------------------------------------------------*/
-    // uint16_t offset_y = (LINES - GAME_MAP.height) / 2;
-    // uint16_t offset_x = (COLS - GAME_MAP.width) / 2;
 
     if (BLOCK_SIZE < 5) {
         for (int i = 0; i < GAME_MAP.height; i++) {
@@ -355,6 +435,143 @@ static void draw_game_board() {
                             }
                         }
                         break; 
+
+                    /* BOMB CASES */
+                    case '@': 
+                        /* empty corners, it's the center of the explosion */
+                        for (int k = 0; k < BLOCK_SIZE; k++) {
+                            for (int l = 0; l < BLOCK_SIZE; l++) {
+                                int is_corner = (k == 0 && l == 0) || (k == 0 && l == BLOCK_SIZE - 1) ||
+                                                (k == BLOCK_SIZE - 1 && l == 0) || (k == BLOCK_SIZE - 1 && l == BLOCK_SIZE - 1);
+
+                                int y = i * BLOCK_SIZE + k + 1;
+                                int x = j * BLOCK_SIZE * 2 + l * 2 + 1;
+
+                                if (is_corner) {
+                                    mvwaddch(MAP_WIN, y, x,     ' ');
+                                    mvwaddch(MAP_WIN, y, x + 1, ' ');
+                                } else {
+                                    mvwaddch(MAP_WIN, y, x,     ' ' | A_REVERSE);
+                                    mvwaddch(MAP_WIN, y, x + 1, ' ' | A_REVERSE);
+                                }
+                            }
+                        }
+                        break;
+                    case '-':
+                        /* bomb laser horizontally, slim up and below */
+                        for (int k = 0; k < BLOCK_SIZE; k++) {
+                            for (int l = 0; l < BLOCK_SIZE; l++) {
+                                int is_top_or_bottom = (k == 0 || k == BLOCK_SIZE - 1);
+
+                                int y = i * BLOCK_SIZE + k + 1;
+                                int x = j * BLOCK_SIZE * 2 + l * 2 + 1;
+
+                                if (is_top_or_bottom) {
+                                    mvwaddch(MAP_WIN, y, x,     ' ');
+                                    mvwaddch(MAP_WIN, y, x + 1, ' ');
+                                } else {
+                                    mvwaddch(MAP_WIN, y, x,     ' ' | A_REVERSE);
+                                    mvwaddch(MAP_WIN, y, x + 1, ' ' | A_REVERSE);
+                                }
+                            }
+                        }
+                        break;
+                    case '>':
+                        /* bomb laser terminator to the right */
+                        for (int k = 0; k < BLOCK_SIZE; k++) {
+                            for (int l = 0; l < BLOCK_SIZE; l++) {
+                                int is_top_bottom_right = (k == 0 || k == BLOCK_SIZE - 1 || l == BLOCK_SIZE - 1);
+
+                                int y = i * BLOCK_SIZE + k + 1;
+                                int x = j * BLOCK_SIZE * 2 + l * 2 + 1;
+
+                                if (is_top_bottom_right) {
+                                    mvwaddch(MAP_WIN, y, x,     ' ');
+                                    mvwaddch(MAP_WIN, y, x + 1, ' ');
+                                } else {
+                                    mvwaddch(MAP_WIN, y, x,     ' ' | A_REVERSE);
+                                    mvwaddch(MAP_WIN, y, x + 1, ' ' | A_REVERSE);
+                                }
+                            }
+                        }
+                        break;
+                    case '<':	
+                        /* bomb laser terminator to the left */
+                        for (int k = 0; k < BLOCK_SIZE; k++) {
+                            for (int l = 0; l < BLOCK_SIZE; l++) {
+                                int is_top_bottom_left = (k == 0 || k == BLOCK_SIZE - 1 || l == 0);
+
+                                int y = i * BLOCK_SIZE + k + 1;
+                                int x = j * BLOCK_SIZE * 2 + l * 2 + 1;
+
+                                if (is_top_bottom_left) {
+                                    mvwaddch(MAP_WIN, y, x,     ' ');
+                                    mvwaddch(MAP_WIN, y, x + 1, ' ');
+                                } else {
+                                    mvwaddch(MAP_WIN, y, x,     ' ' | A_REVERSE);
+                                    mvwaddch(MAP_WIN, y, x + 1, ' ' | A_REVERSE);
+                                }
+                            }
+                        }
+                        break;
+                    case '|':
+                        /* bomb laser vertically, slim right and left */
+                        for (int k = 0; k < BLOCK_SIZE; k++) {
+                            for (int l = 0; l < BLOCK_SIZE; l++) {
+                                int is_left_or_right = (l == 0 || l == BLOCK_SIZE - 1);
+
+                                int y = i * BLOCK_SIZE + k + 1;
+                                int x = j * BLOCK_SIZE * 2 + l * 2 + 1;
+
+                                if (is_left_or_right) {
+                                    mvwaddch(MAP_WIN, y, x,     ' ');
+                                    mvwaddch(MAP_WIN, y, x + 1, ' ');
+                                } else {
+                                    mvwaddch(MAP_WIN, y, x,     ' ' | A_REVERSE);
+                                    mvwaddch(MAP_WIN, y, x + 1, ' ' | A_REVERSE);
+                                }
+                            }
+                        }
+                        break;
+                    case '^':
+                        /* bomb laser terminator above, slim left,right,above */
+                        for (int k = 0; k < BLOCK_SIZE; k++) {
+                            for (int l = 0; l < BLOCK_SIZE; l++) {
+                                int is_left_right_or_top = (l == 0 || l == BLOCK_SIZE - 1 || k == 0);
+
+                                int y = i * BLOCK_SIZE + k + 1;
+                                int x = j * BLOCK_SIZE * 2 + l * 2 + 1;
+
+                                if (is_left_right_or_top) {
+                                    mvwaddch(MAP_WIN, y, x,     ' ');
+                                    mvwaddch(MAP_WIN, y, x + 1, ' ');
+                                } else {
+                                    mvwaddch(MAP_WIN, y, x,     ' ' | A_REVERSE);
+                                    mvwaddch(MAP_WIN, y, x + 1, ' ' | A_REVERSE);
+                                }
+                            }
+                        }
+                        break;
+                    case 'v':
+                        /* bomb laser terminator below, slim left,right,below */
+                        for (int k = 0; k < BLOCK_SIZE; k++) {
+                            for (int l = 0; l < BLOCK_SIZE; l++) {
+                                int is_left_right_or_bottom = (l == 0 || l == BLOCK_SIZE - 1 || k == BLOCK_SIZE - 1);
+
+                                int y = i * BLOCK_SIZE + k + 1;
+                                int x = j * BLOCK_SIZE * 2 + l * 2 + 1;
+
+                                if (is_left_right_or_bottom) {
+                                    mvwaddch(MAP_WIN, y, x,     ' ');
+                                    mvwaddch(MAP_WIN, y, x + 1, ' ');
+                                } else {
+                                    mvwaddch(MAP_WIN, y, x,     ' ' | A_REVERSE);
+                                    mvwaddch(MAP_WIN, y, x + 1, ' ' | A_REVERSE);
+                                }
+                            }
+                        }
+                        break;
+
                     case 'H': 
                         /* hard wall -> full border */
                         for (int k = 0; k < BLOCK_SIZE; k++) {
