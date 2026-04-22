@@ -42,7 +42,7 @@ player_t TEST_PLAYER = {
     .ready = true,
     .bomb_count = 2,
     .bomb_radius = 3,
-    .bomb_timer_ticks = 5,
+    .bomb_timer_ticks = 20,
     .speed = 1
 };
 
@@ -133,39 +133,55 @@ static void handle_explosion_end(const msg_generic_t *header, const msg_explosio
     GAME_MAP.cells[expl_end->cell_index] = '.';
 
     uint8_t blocked_up = 0, blocked_down = 0, blocked_left = 0, blocked_right = 0;
-    int     total = GAME_MAP.width * GAME_MAP.height;
-    int     ci    = expl_end->cell_index;
-    int     crow  = ci / GAME_MAP.width;
+    int32_t     total = GAME_MAP.width * GAME_MAP.height;
+    int32_t     ci    = expl_end->cell_index;
+    int32_t     crow  = ci / GAME_MAP.width;
 
     for (int r = 1; r <= expl_end->radius; r++) {
         /* UP */
         if (!blocked_up) {
-            int idx = ci - r * GAME_MAP.width;
+            int32_t idx = ci - r * GAME_MAP.width;
             if (idx < 0 || GAME_MAP.cells[idx] == 'H')        blocked_up = 1;
             else if (GAME_MAP.cells[idx] == 'S')             { GAME_MAP.cells[idx] = '.'; blocked_up = 1; }
+            else if (GAME_MAP.cells[idx] == '-' ||
+                     GAME_MAP.cells[idx] == '<' ||
+                     GAME_MAP.cells[idx] == '>')             { /* these are from a newer explosion */ }
+            else if (GAME_MAP.cells[idx] == 'v')             { blocked_up = 1; /* newer explosion starts here */}
             else                                               GAME_MAP.cells[idx] = '.';
         }
         /* DOWN */
         if (!blocked_down) {
-            int idx = ci + r * GAME_MAP.width;
+            int32_t idx = ci + r * GAME_MAP.width;
             if (idx >= total || GAME_MAP.cells[idx] == 'H')   blocked_down = 1;
             else if (GAME_MAP.cells[idx] == 'S')             { GAME_MAP.cells[idx] = '.'; blocked_down = 1; }
+            else if (GAME_MAP.cells[idx] == '-' ||
+                     GAME_MAP.cells[idx] == '<' ||
+                     GAME_MAP.cells[idx] == '>')             { /* these are from a newer explosion */ }
+            else if (GAME_MAP.cells[idx] == '^')             { blocked_up = 1; /* newer explosion starts here */}
             else                                               GAME_MAP.cells[idx] = '.';
         }
         /* LEFT */
         if (!blocked_left) {
-            int idx = ci - r;
+            int32_t idx = ci - r;
             if (idx < 0 || idx / GAME_MAP.width != crow ||
                 GAME_MAP.cells[idx] == 'H')                    blocked_left = 1;
             else if (GAME_MAP.cells[idx] == 'S')             { GAME_MAP.cells[idx] = '.'; blocked_left = 1; }
+            else if (GAME_MAP.cells[idx] == '|' ||
+                     GAME_MAP.cells[idx] == '^' ||
+                     GAME_MAP.cells[idx] == 'v')             { /* these are from a newer explosion */ }
+            else if (GAME_MAP.cells[idx] == '>')             { blocked_up = 1; /* newer explosion starts here */}
             else                                               GAME_MAP.cells[idx] = '.';
         }
         /* RIGHT */
         if (!blocked_right) {
-            int idx = ci + r;
+            int32_t idx = ci + r;
             if (idx >= total || idx / GAME_MAP.width != crow ||
                 GAME_MAP.cells[idx] == 'H')                    blocked_right = 1;
             else if (GAME_MAP.cells[idx] == 'S')             { GAME_MAP.cells[idx] = '.'; blocked_right = 1; }
+            else if (GAME_MAP.cells[idx] == '|' ||
+                     GAME_MAP.cells[idx] == '^' ||
+                     GAME_MAP.cells[idx] == 'v')             { /* these are from a newer explosion */ }
+            else if (GAME_MAP.cells[idx] == '<')             { blocked_up = 1; /* newer explosion starts here */}
             else                                               GAME_MAP.cells[idx] = '.';
         }
     }

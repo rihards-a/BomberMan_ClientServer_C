@@ -50,7 +50,7 @@ player_t test_player = {
     .ready = true,
     .bomb_count = 2,
     .bomb_radius = 3,
-    .bomb_timer_ticks = 10, /* 0.5 seconds */
+    .bomb_timer_ticks = 20, /* 1 second */
     .speed = 1
 };
 
@@ -212,9 +212,9 @@ static void bomb_array_explode(BombArray *a, size_t i)
     printf("Bomb at (%d, %d) exploded!\n", a->bombs[i].row, a->bombs[i].col);
 
     uint8_t blocked_up = 0, blocked_down = 0, blocked_left = 0, blocked_right = 0;
-    int     total = GAME_MAP->width * GAME_MAP->height;
-    int     ci    = cell_index;
-    int     crow  = ci / GAME_MAP->width;
+    int32_t     total = GAME_MAP->width * GAME_MAP->height;
+    int32_t     ci    = cell_index;
+    int32_t     crow  = ci / GAME_MAP->width;
     
     GAME_MAP->cells[ci] = '.';
 
@@ -224,32 +224,48 @@ static void bomb_array_explode(BombArray *a, size_t i)
     for (int r = 1; r <= a->bombs[i].radius; r++) {
         /* UP */
         if (!blocked_up) {
-            int idx = ci - r * GAME_MAP->width;
+            int32_t idx = ci - r * GAME_MAP->width;
             if (idx < 0 || GAME_MAP->cells[idx] == 'H')        blocked_up = 1;
             else if (GAME_MAP->cells[idx] == 'S')             { GAME_MAP->cells[idx] = '.'; blocked_up = 1; }
+            else if (GAME_MAP->cells[idx] == '-' ||
+                     GAME_MAP->cells[idx] == '<' ||
+                     GAME_MAP->cells[idx] == '>')             { /* these are from a newer explosion */ }
+            else if (GAME_MAP->cells[idx] == 'v')             { blocked_up = 1; /* newer explosion starts here */}
             else                                               GAME_MAP->cells[idx] = '.';
         }
         /* DOWN */
         if (!blocked_down) {
-            int idx = ci + r * GAME_MAP->width;
+            int32_t idx = ci + r * GAME_MAP->width;
             if (idx >= total || GAME_MAP->cells[idx] == 'H')   blocked_down = 1;
             else if (GAME_MAP->cells[idx] == 'S')             { GAME_MAP->cells[idx] = '.'; blocked_down = 1; }
+            else if (GAME_MAP->cells[idx] == '-' ||
+                     GAME_MAP->cells[idx] == '<' ||
+                     GAME_MAP->cells[idx] == '>')             { /* these are from a newer explosion */ }
+            else if (GAME_MAP->cells[idx] == '^')             { blocked_up = 1; /* newer explosion starts here */}
             else                                               GAME_MAP->cells[idx] = '.';
         }
         /* LEFT */
         if (!blocked_left) {
-            int idx = ci - r;
+            int32_t idx = ci - r;
             if (idx < 0 || idx / GAME_MAP->width != crow ||
                 GAME_MAP->cells[idx] == 'H')                    blocked_left = 1;
             else if (GAME_MAP->cells[idx] == 'S')             { GAME_MAP->cells[idx] = '.'; blocked_left = 1; }
+            else if (GAME_MAP->cells[idx] == '|' ||
+                     GAME_MAP->cells[idx] == '^' ||
+                     GAME_MAP->cells[idx] == 'v')             { /* these are from a newer explosion */ }
+            else if (GAME_MAP->cells[idx] == '>')             { blocked_up = 1; /* newer explosion starts here */}
             else                                               GAME_MAP->cells[idx] = '.';
         }
         /* RIGHT */
         if (!blocked_right) {
-            int idx = ci + r;
+            int32_t idx = ci + r;
             if (idx >= total || idx / GAME_MAP->width != crow ||
                 GAME_MAP->cells[idx] == 'H')                    blocked_right = 1;
             else if (GAME_MAP->cells[idx] == 'S')             { GAME_MAP->cells[idx] = '.'; blocked_right = 1; }
+            else if (GAME_MAP->cells[idx] == '|' ||
+                     GAME_MAP->cells[idx] == '^' ||
+                     GAME_MAP->cells[idx] == 'v')             { /* these are from a newer explosion */ }
+            else if (GAME_MAP->cells[idx] == '<')             { blocked_up = 1; /* newer explosion starts here */}
             else                                               GAME_MAP->cells[idx] = '.';
         }
     }
