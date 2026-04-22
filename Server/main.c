@@ -19,6 +19,15 @@ int CLIENT_FD;
 uint8_t is_player_on_bomb[8];
 uint8_t bombs_active_for_player[8]; /* > 0 means player has bombs on the map */
 uint16_t BOMB_DETONATION_TICKS = 20; /* 1 second, should be set on map init later */
+uint8_t player_move_cooldown[8]; /* ticks until player can move again, based on their speed */
+uint8_t player_speed[8]; /* player speed, set on map init later */
+
+void init_players(void) {
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        player_speed[i] = 2;  /* default: 4 blocks/sec */
+        player_move_cooldown[i] = 0;
+    }
+}
 
 typedef struct {
     bomb_t bombs[MAX_BOMBS];
@@ -27,6 +36,7 @@ typedef struct {
 static int bomb_array_push(BombArray *a, bomb_t bomb);
 static void bomb_array_explode(BombArray *a, size_t i);
 static void bomb_array_tick(BombArray *a);
+static void decrement_move_cooldown(void);
 
 BombArray ACTIVE_BOMBS = { .size = 0 };
 
@@ -107,8 +117,12 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    init_players();
+
     /* ------------------ main loop ------------------ */
     while (1) {  
+        decrement_move_cooldown();
+
         handle_client_messages(CLIENT_FD);
 
         bomb_array_tick(&ACTIVE_BOMBS);
@@ -303,6 +317,15 @@ static void handle_bomb_attempt(const msg_generic_t *header, const msg_bomb_atte
 
 static void handle_move_attempt(const msg_generic_t *header, const msg_move_attempt_t *move_msg) {
     printf("Received MOVE_ATTEMPT from client: %d! Direction: %c\n", header->sender_id, move_msg->direction);
+    if (player_move_cooldown[header->sender_id] > 0) {
+        /* player is moving too fast, silently drop or send a blocked response */
+        printf("Player %d is moving too fast! Cooldown: %d ticks\n", header->sender_id, player_move_cooldown[header->sender_id]);
+        return;
+    }
+    /* reset cooldown based on this player's speed */
+    /* speed 4 -> cooldown = 20/4 = 5 ticks between moves */
+    player_move_cooldown[header->sender_id] = (uint8_t)(TICKS_PER_SECOND / player_speed[header->sender_id]);
+
     uint16_t pos = make_cell_index(test_player.row, test_player.col, GAME_MAP->width);
     int16_t tmp_row = test_player.row;
     int16_t tmp_col = test_player.col;
@@ -352,7 +375,15 @@ static void handle_move_attempt(const msg_generic_t *header, const msg_move_atte
     } 
     else {
         blocked_move:
-            printf("Move blocked at position (%d, %d)\n", tmp_row, tmp_col);
+            printf("Move blocked to position (%d, %d)\n", tmp_row, tmp_col);
+    }
+}
+
+static void decrement_move_cooldown() {
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        if (player_move_cooldown[i] > 0) {
+            player_move_cooldown[i]--;
+        }
     }
 }
 
