@@ -18,6 +18,7 @@ int CLIENT_FD;
 
 uint8_t is_player_on_bomb[8];
 uint8_t bombs_active_for_player[8]; /* > 0 means player has bombs on the map */
+uint16_t BOMB_DETONATION_TICKS = 20; /* 1 second, should be set on map init later */
 
 typedef struct {
     bomb_t bombs[MAX_BOMBS];
@@ -25,7 +26,7 @@ typedef struct {
 } BombArray;
 static int bomb_array_push(BombArray *a, bomb_t bomb);
 static void bomb_array_explode(BombArray *a, size_t i);
-static void bomb_array_tick_second(BombArray *a);
+static void bomb_array_tick(BombArray *a);
 
 BombArray ACTIVE_BOMBS = { .size = 0 };
 
@@ -39,7 +40,7 @@ player_t test_player = {
     .ready = true,
     .bomb_count = 2,
     .bomb_radius = 3,
-    .bomb_timer_ticks = 5,
+    .bomb_timer_ticks = 10, /* 0.5 seconds */
     .speed = 1
 };
 
@@ -107,18 +108,10 @@ int main() {
     }
 
     /* ------------------ main loop ------------------ */
-    uint8_t tick_count = 0;
     while (1) {  
         handle_client_messages(CLIENT_FD);
 
-        if (++tick_count >= TICKS_PER_SECOND) {
-            /* this does mean that bombs placed at 0.01s and 0.99s explode at the same time.
-                a solution is storing ticks inside bombs and running this every tick, should 
-                probably implement that later - multiply player tick count with 20 so its ticks
-                per second, and then subtract per tick. */
-            bomb_array_tick_second(&ACTIVE_BOMBS);
-            tick_count = 0;
-        }
+        bomb_array_tick(&ACTIVE_BOMBS);
 
         usleep(1000000 / TICKS_PER_SECOND); /* 1e6 for microseconds */
     }
@@ -174,7 +167,7 @@ static void bomb_array_explode(BombArray *a, size_t i)
     }
 }
 
-static void bomb_array_tick_second(BombArray *a)
+static void bomb_array_tick(BombArray *a)
 {
     size_t i = 0;
 
@@ -206,7 +199,7 @@ static void handle_bomb_attempt(const msg_generic_t *header, const msg_bomb_atte
             .row = test_player.row,
             .col = test_player.col,
             .radius = test_player.bomb_radius,
-            .timer_ticks = test_player.bomb_timer_ticks
+            .timer_ticks = BOMB_DETONATION_TICKS
         });
 
         /* figure out overlay later - doesn't work on low resolution 
