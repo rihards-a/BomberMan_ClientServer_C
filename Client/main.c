@@ -75,7 +75,7 @@ int main() {
     }  
     printf("Server connection successful\n");  
 
-    
+    /* MAKE INTRO SCREEN/TITLE SCREEN ASCII ART */
     // /* receive map data */
     // /* implement init receiving later, for now const until receive the server map in loop */
     // /* the size has to be at least equal to the map the server will send, 
@@ -209,32 +209,40 @@ static void handle_explosion_start(const msg_generic_t *header, const msg_explos
         if (!blocked_up) {
             int32_t idx = ci - r * GAME_MAP.width;
             if (idx < 0)                               blocked_up = 1;
-            else if (GAME_MAP.cells[idx] == 'H')       blocked_up = 1;
-            else if (GAME_MAP.cells[idx] == 'S')       blocked_up = 1; /* TODO: soft wall damage */
+            else if (GAME_MAP.cells[idx] == 'H' || 
+                     GAME_MAP.cells[idx] == 'S' ||
+                     GAME_MAP.cells[idx] == 'B' ||     /* server should send explosion soon */
+                     GAME_MAP.cells[idx] == '@')       blocked_up = 1;
             else GAME_MAP.cells[idx] = tip ? '^' : '|';
         }
         /* DOWN */
         if (!blocked_down) {
             int32_t idx = ci + r * GAME_MAP.width;
             if (idx >= total)                          blocked_down = 1;
-            else if (GAME_MAP.cells[idx] == 'H')       blocked_down = 1;
-            else if (GAME_MAP.cells[idx] == 'S')       blocked_down = 1;
+            else if (GAME_MAP.cells[idx] == 'H' || 
+                     GAME_MAP.cells[idx] == 'S' ||
+                     GAME_MAP.cells[idx] == 'B' ||     
+                     GAME_MAP.cells[idx] == '@')       blocked_down = 1;
             else GAME_MAP.cells[idx] = tip ? 'v' : '|';
         }
         /* LEFT */
         if (!blocked_left) {
             int32_t idx = ci - r;
             if (idx < 0 || idx / GAME_MAP.width != crow)    blocked_left = 1;
-            else if (GAME_MAP.cells[idx] == 'H')            blocked_left = 1;
-            else if (GAME_MAP.cells[idx] == 'S')            blocked_left = 1;
+            else if (GAME_MAP.cells[idx] == 'H' || 
+                     GAME_MAP.cells[idx] == 'S' ||
+                     GAME_MAP.cells[idx] == 'B' ||     
+                     GAME_MAP.cells[idx] == '@')            blocked_left = 1;
             else GAME_MAP.cells[idx] = tip ? '<' : '-';
         }
         /* RIGHT */
         if (!blocked_right) {
             int32_t idx = ci + r;
             if (idx >= total || idx / GAME_MAP.width != crow)   blocked_right = 1;
-            else if (GAME_MAP.cells[idx] == 'H')                blocked_right = 1;
-            else if (GAME_MAP.cells[idx] == 'S')                blocked_right = 1;
+            else if (GAME_MAP.cells[idx] == 'H' || 
+                     GAME_MAP.cells[idx] == 'S' ||
+                     GAME_MAP.cells[idx] == 'B' ||     
+                     GAME_MAP.cells[idx] == '@')                blocked_right = 1;
             else GAME_MAP.cells[idx] = tip ? '>' : '-';
         }
     }  

@@ -1,6 +1,6 @@
 6 9 3 5 3 4
-H 1 . . A A A A . 
-. . S S . R H H . 
+H 1 N N A A A A . 
+. . S S A R H H . 
 T T . 2 . . . H 6 
 . H T . . . . . . 
 H . 3 . . . . 5 . 

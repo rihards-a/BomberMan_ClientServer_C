@@ -18,7 +18,7 @@ int CLIENT_FD;
 
 uint8_t is_player_on_bomb[8];
 uint8_t bombs_active_for_player[8]; /* > 0 means player has bombs on the map */
-uint16_t BOMB_DETONATION_TICKS = 20; /* 1 second, should be set on map init later */
+uint16_t BOMB_DETONATION_TICKS = 40; /* 1 second, should be set on map init later */
 uint8_t player_move_cooldown[8]; /* ticks until player can move again, based on their speed */
 
 
@@ -43,7 +43,7 @@ BombArray ACTIVE_BOMBS = { .size = 0 };
 player_t test_player = {
     .id = 1,
     .name = "Test Player",
-    .row = 1,
+    .row = 0,
     .col = 1,
     .lives = 1,
     .ready = true,
@@ -89,7 +89,7 @@ int main() {
     /* -----------------test-input-map-------------------- */
     uint8_t height, width, c;
     /* make sure you're running it from the right directory (as ./server)*/
-    FILE *fp = fopen("maps/test_map_2.txt", "r");
+    FILE *fp = fopen("maps/test_map_1.txt", "r");
     if (!fp) return 1;
 
     fscanf(fp, "%hhd %hhd", &height, &width);
@@ -167,17 +167,50 @@ static void bomb_array_explode(BombArray *a, size_t i)
             /* UP */
             if (!blocked_up) {
                 int32_t idx = ci - r * GAME_MAP->width;
-                if (idx < 0)                               blocked_up = 1;
+                if (idx < 0)                                blocked_up = 1;
                 else if (GAME_MAP->cells[idx] == 'H')       blocked_up = 1;
-                else if (GAME_MAP->cells[idx] == 'S')       blocked_up = 1; /* TODO: soft wall damage */
+                else if (GAME_MAP->cells[idx] == 'S')       blocked_up = 1; /* TODO: soft wall block destroyed message? we don't need it really */
+                else if (GAME_MAP->cells[idx] == '@') {     
+                    printf("Chain reaction triggered at cell index %d!\n", idx);
+                    blocked_up = 1;
+                }
+                else if (GAME_MAP->cells[idx] == 'B') {
+                    /* chain reaction, explode this bomb immediately -
+                        could create a queue so nothing weird happens when bombs 
+                        get chained in a circle and the first one will finish 
+                        execution by overwriting one of the last bombs laser,
+                        but that seems overkill for an edge case like that. */
+                    for (size_t j = 0; j < ACTIVE_BOMBS.size; j++) {
+                        if (ACTIVE_BOMBS.bombs[j].row == idx / GAME_MAP->width &&
+                            ACTIVE_BOMBS.bombs[j].col == idx % GAME_MAP->width &&
+                            !ACTIVE_BOMBS.bombs[j].active) {
+                                bomb_array_explode(&ACTIVE_BOMBS, j);
+                                break;
+                        }
+                    }
+                    blocked_up = 1;
+                }
                 else GAME_MAP->cells[idx] = tip ? '^' : '|';
             }
             /* DOWN */
             if (!blocked_down) {
                 int32_t idx = ci + r * GAME_MAP->width;
-                if (idx >= total)                          blocked_down = 1;
+                if (idx >= total)                           blocked_down = 1;
                 else if (GAME_MAP->cells[idx] == 'H')       blocked_down = 1;
                 else if (GAME_MAP->cells[idx] == 'S')       blocked_down = 1;
+                else if (GAME_MAP->cells[idx] == '@')       blocked_down = 1;
+                else if (GAME_MAP->cells[idx] == 'B') {
+                    /* chain reaction, explode this bomb immediately */
+                    for (size_t j = 0; j < ACTIVE_BOMBS.size; j++) {
+                        if (ACTIVE_BOMBS.bombs[j].row == idx / GAME_MAP->width &&
+                            ACTIVE_BOMBS.bombs[j].col == idx % GAME_MAP->width &&
+                            !ACTIVE_BOMBS.bombs[j].active) {
+                                bomb_array_explode(&ACTIVE_BOMBS, j);
+                                break;
+                        }
+                    }
+                    blocked_down = 1;
+                }
                 else GAME_MAP->cells[idx] = tip ? 'v' : '|';
             }
             /* LEFT */
@@ -186,6 +219,19 @@ static void bomb_array_explode(BombArray *a, size_t i)
                 if (idx < 0 || idx / GAME_MAP->width != crow)    blocked_left = 1;
                 else if (GAME_MAP->cells[idx] == 'H')            blocked_left = 1;
                 else if (GAME_MAP->cells[idx] == 'S')            blocked_left = 1;
+                else if (GAME_MAP->cells[idx] == '@')            blocked_left = 1;
+                else if (GAME_MAP->cells[idx] == 'B') {
+                    /* chain reaction, explode this bomb immediately */
+                    for (size_t j = 0; j < ACTIVE_BOMBS.size; j++) {
+                        if (ACTIVE_BOMBS.bombs[j].row == idx / GAME_MAP->width &&
+                            ACTIVE_BOMBS.bombs[j].col == idx % GAME_MAP->width &&
+                            !ACTIVE_BOMBS.bombs[j].active) {
+                                bomb_array_explode(&ACTIVE_BOMBS, j);
+                                break;
+                        }
+                    }
+                    blocked_left = 1;
+                }
                 else GAME_MAP->cells[idx] = tip ? '<' : '-';
             }
             /* RIGHT */
@@ -194,6 +240,19 @@ static void bomb_array_explode(BombArray *a, size_t i)
                 if (idx >= total || idx / GAME_MAP->width != crow)   blocked_right = 1;
                 else if (GAME_MAP->cells[idx] == 'H')                blocked_right = 1;
                 else if (GAME_MAP->cells[idx] == 'S')                blocked_right = 1;
+                else if (GAME_MAP->cells[idx] == '@')                blocked_right = 1;
+                else if (GAME_MAP->cells[idx] == 'B') {
+                    /* chain reaction, explode this bomb immediately */
+                    for (size_t j = 0; j < ACTIVE_BOMBS.size; j++) {
+                        if (ACTIVE_BOMBS.bombs[j].row == idx / GAME_MAP->width &&
+                            ACTIVE_BOMBS.bombs[j].col == idx % GAME_MAP->width &&
+                            !ACTIVE_BOMBS.bombs[j].active) {
+                                bomb_array_explode(&ACTIVE_BOMBS, j);
+                                break;
+                        }
+                    }
+                    blocked_right = 1;
+                }
                 else GAME_MAP->cells[idx] = tip ? '>' : '-';
             }
         }  
@@ -330,16 +389,16 @@ static void handle_bomb_attempt(const msg_generic_t *header, const msg_bomb_atte
     }
 }
 
-/*-------bonus logic-------*/
 int is_bonus_cell(char cell) {
-    return cell == 'A' || cell == 'T' || cell == 'R';
+    return cell == 'A' || cell == 'T' || cell == 'R' || cell == 'N';
 }
 
 static void apply_bonus(uint8_t player_id, char bonus_type, uint16_t new_pos) {
     switch (bonus_type) {
-        case 'A': test_player.speed += 1; break;
+        case 'A': test_player.speed += 1;              break;
         case 'T': test_player.bomb_timer_ticks += 10;  break;
-        case 'R': test_player.bomb_radius += 1;          break;
+        case 'R': test_player.bomb_radius += 1;        break;
+        case 'N': test_player.bomb_count += 1;         break;	
     }
     if (send_bonus_retrieved(CLIENT_FD, TARGET_SERVER, TARGET_BROADCAST, &(msg_bonus_retrieved_t){ .player_id = player_id, .cell_index = new_pos }) < 0) {
         perror("Failed to send bonus retrieved message");
