@@ -13,19 +13,35 @@
 #include "../config.h"
 #include "../msg_protocol.h"
 
-/*  2 to use '.' symbols in between chars for padding, only option */
+/*  2 to use '.' symbols in between chars for padding, so the image doesn't look squished */
 #define DOT_PADDING 2 
-/*  max amount of ASCII symbols representing a single element on the map - lower means more efficient bounds checking */
+/*  max amount of ASCII symbols representing a single element on the map - lower means more efficient bounds checking on resize */
 #define MAX_BLOCK_SIZE 8 
-/* player name +(4chars) character symbol on the map (1 char) +(4chars) their score (10 chars) + 4 for borders */
-#define SIDE_BAR_WIDTH MAX_NAME_LEN + 4 + 1 + 4 + 10 + 4
-/* padding + max 8 player names +(2chars) start button + padding */
-#define SIDE_BAR_HEIGHT 1 + 8 + 2 + 1 + 1
+enum {
+    SPACING_WIDTH = 4,
+
+    /* player name +(4chars) character symbol on the map (1 char) +(4chars) their score (10 chars) + 4 for borders */
+    SIDE_BAR_WIDTH =
+        MAX_NAME_LEN
+        + SPACING_WIDTH
+        + 1
+        + SPACING_WIDTH
+        + 10
+        + SPACING_WIDTH,
+
+    /* max 8 player names +(2chars) start button + padding */
+    SIDE_BAR_HEIGHT =
+        8
+        + 2
+        + 1
+        + SPACING_WIDTH
+};
 
 WINDOW *TERMINAL_WIN = NULL, *SIDEBAR_WIN = NULL, *MAP_WIN = NULL;
 uint8_t BLOCK_SIZE;
-int CLIENT_FD; /* global client socket file descriptor for sending messages to server */
+int CLIENT_FD;
 GameMap GAME_MAP;
+player_t *OTHER_PLAYERS;
 
 volatile sig_atomic_t resized = 1; /* 1 to enter loop on start */
 void resize_handler(int sig) {
@@ -33,7 +49,7 @@ void resize_handler(int sig) {
     resized = 1;
 }
 
-player_t TEST_PLAYER = {
+player_t SELF_PLAYER = {
     .id = 1,
     .name = "Test Player",
     .row = 0,
@@ -49,8 +65,6 @@ player_t TEST_PLAYER = {
 static void handle_user_input(int ch);
 static void draw_game_board();
 static void resize_game_board();
-static void handle_disconnect();
-static void handle_error();
 static void dispatch(int fd, const msg_generic_t *header, const void *payload);
 static void handle_server_messages(int fd);
 
@@ -99,8 +113,23 @@ int main() {
     GAME_MAP.cells = malloc(MAX_HEIGHT * MAX_WIDTH);
     GAME_MAP.height = 19;
     GAME_MAP.width = 19;
-
     memcpy(GAME_MAP.cells, title, GAME_MAP.height*GAME_MAP.width);
+
+    /* init other player storage */
+    OTHER_PLAYERS = (player_t*)malloc(7*sizeof(player_t));
+    OTHER_PLAYERS[0] = (player_t){
+        .id = 2,
+        .name = "Other Test Player",
+        .row = 5,
+        .col = 5,
+        .lives = 1,
+        .ready = true,
+        .bomb_count = 2,
+        .bomb_radius = 1,
+        .bomb_timer_ticks = 20,
+        .speed = 4
+    };
+
 
     initscr();
     cbreak();       /* disables line buffering */
@@ -262,7 +291,7 @@ static void handle_bomb(const msg_generic_t *header, const msg_bomb_t *bomb_msg)
 
 static void handle_moved(const msg_generic_t *header, const msg_moved_t *moved_msg) {
     (void)header; /* might be useful later */
-    uint16_t cur_pos = make_cell_index(TEST_PLAYER.row, TEST_PLAYER.col, GAME_MAP.width);
+    uint16_t cur_pos = make_cell_index(SELF_PLAYER.row, SELF_PLAYER.col, GAME_MAP.width);
 
     /* find old position of the player and clear it */
     if (GAME_MAP.cells[cur_pos] == '0' + moved_msg->player_id) {
@@ -270,10 +299,10 @@ static void handle_moved(const msg_generic_t *header, const msg_moved_t *moved_m
     }
 
     /* check if it's for self */
-    if (moved_msg->player_id == TEST_PLAYER.id) {
+    if (moved_msg->player_id == SELF_PLAYER.id) {
         /* update test player position */
-        TEST_PLAYER.row = moved_msg->cell_index / GAME_MAP.width;
-        TEST_PLAYER.col = moved_msg->cell_index % GAME_MAP.width;
+        SELF_PLAYER.row = moved_msg->cell_index / GAME_MAP.width;
+        SELF_PLAYER.col = moved_msg->cell_index % GAME_MAP.width;
     }
     
     uint8_t player_id = moved_msg->player_id;
@@ -365,8 +394,8 @@ static void handle_user_input(int ch) {
             handle_movement_input(ch);
         }
         if (ch == ' ') {
-            msg_bomb_attempt_t bomb_msg = { .cell_index = make_cell_index(TEST_PLAYER.row, TEST_PLAYER.col, GAME_MAP.width) };
-            send_bomb_attempt(CLIENT_FD, TEST_PLAYER.id, 255, &bomb_msg);
+            msg_bomb_attempt_t bomb_msg = { .cell_index = make_cell_index(SELF_PLAYER.row, SELF_PLAYER.col, GAME_MAP.width) };
+            send_bomb_attempt(CLIENT_FD, SELF_PLAYER.id, 255, &bomb_msg);
         }
         if (ch == 27)        { /* ESC */ exit(1); }
     }
@@ -711,15 +740,48 @@ static void draw_game_board() {
     /*-------------------------------------------------------------------*/
 
     /* TODO */
-    for (int i = 1; i < MAX_PLAYERS+1; i++) {
-        mvwaddnstr(SIDEBAR_WIN, i, 1, "your 30 username aaaaaaaaaaaa", 30);
-        mvwaddnstr(SIDEBAR_WIN, i, 31, " __ ", 4);
-        mvwaddch(SIDEBAR_WIN, i, 36, '@'); /* ! ? @ $ % & ~ < */
-        mvwaddnstr(SIDEBAR_WIN, i, 37, " __ ", 4);
-        mvwaddnstr(SIDEBAR_WIN, i, 42, "0123456789", 10);
+    static const char empty[] = "Empty";
+    static const char latest_winner[] = "Latest winner: Zebiekste";
+    static const char help_text[] = "Press ESC to return / SPACE to restart";
+    
+    char line[SIDE_BAR_WIDTH-1];
+    /* print self first */
+    snprintf(line, sizeof line,
+        "%-*.*s __ %d __ 0123456789",
+        /* MAX_NAME_LEN sets the max and min width so it's aligned */
+        MAX_NAME_LEN, MAX_NAME_LEN, SELF_PLAYER.name,
+        SELF_PLAYER.id);
+    mvwaddnstr(SIDEBAR_WIN, 1, 2, line, SIDE_BAR_WIDTH-1);
+    /* 7 other players after a gap (start at row 3) */
+    for (int i = 3; i < MAX_PLAYERS + 2; i++) {
+        player_t crnt_p = OTHER_PLAYERS[i-3]; 
+        if (crnt_p.lives) {
+            snprintf(line, sizeof line,
+                "%-*.*s __ %d __ 0123456789",
+                MAX_NAME_LEN, MAX_NAME_LEN, crnt_p.name,
+                crnt_p.id);
+            mvwaddnstr(SIDEBAR_WIN, i, 2, line, SIDE_BAR_WIDTH-1);
+        } else {
+            mvwaddnstr(SIDEBAR_WIN, i, 2, empty, SIDE_BAR_WIDTH-1);
+        }
     }
-    mvwaddnstr(SIDEBAR_WIN, SIDE_BAR_HEIGHT-3, (SIDE_BAR_WIDTH - strlen("Latest winner: Zebiekste"))/2 -1, "Latest winner: Zebiekste", 40);
-    mvwaddnstr(SIDEBAR_WIN, SIDE_BAR_HEIGHT-2, (SIDE_BAR_WIDTH - strlen("Press ESC to return / SPACE to restart"))/2 -1, "Press ESC to return / SPACE to restart", 40);
 
+    /* should make a menu here for the first player only
+        others should see a sprite or some ascii art */
+
+    mvwaddnstr(
+        SIDEBAR_WIN,
+        SIDE_BAR_HEIGHT - 3,
+        (SIDE_BAR_WIDTH - (int)strlen(latest_winner)) / 2 - 1,
+        latest_winner,
+        SIDE_BAR_WIDTH
+    );
+    mvwaddnstr(
+        SIDEBAR_WIN,
+        SIDE_BAR_HEIGHT - 2,
+        (SIDE_BAR_WIDTH - (int)strlen(help_text)) / 2 - 1,
+        help_text,
+        SIDE_BAR_WIDTH
+    );
     wrefresh(SIDEBAR_WIN);
 }
