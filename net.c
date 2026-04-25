@@ -195,16 +195,17 @@ static int recv_fixed_message(int fd, void **payload, size_t *payload_len, size_
     *payload_len = 0;
 
     /* --- non-blocking gate: bail if nothing is waiting --- */
-    fd_set rfds;
-    FD_ZERO(&rfds);
-    FD_SET(fd, &rfds);
-    struct timeval tv = { 0, 0 };
-
+    fd_set rfds;                    /* create a set of readable fds */
+    FD_ZERO(&rfds);                 /* to clear the set just in case */
+    FD_SET(fd, &rfds);              /* add the fd to the set */
+    struct timeval tv = { 0, 0 };   /* for how long to wait (0) */
+    /* select monitors file descriptors to check if they're ready
+        for their corresponding I/O operation, read in this case. */
     int ready = select(fd + 1, &rfds, NULL, NULL, &tv);
     if (ready == 0) return 2;   /* nothing there this tick */
-    if (ready < 0)  return -1;  /* select itself failed    */
+    if (ready < 0)  return -1;  /* select itself failed */
+    /* --- non-blocking gate: bail if nothing is waiting --- */
 
-    /* --- from here on, identical to the original --- */
     int rc = recv_exact(fd, header, sizeof(*header));
     if (rc != 0)
         return rc;
