@@ -7,6 +7,7 @@
 
 #include "net.h"
 #include "msg_protocol.h"
+#include "config.h"
 
 #define RECV_FIXED_CASE(MSG_ID, TYPE) \
     case MSG_ID: \
@@ -141,7 +142,38 @@ int send_ping_message(int fd,
         NULL);
 }
 
+int send_ready_message(int fd, 
+    uint8_t sender_id, 
+    uint8_t target_id)
+{
+    return send_protocol_message(fd, 
+        MSG_SET_READY, 
+        sender_id, 
+        target_id, 
+        0, 
+        NULL);
+}
+
+int send_welcome_message(int fd, 
+                         uint8_t sender_id, 
+                         uint8_t target_id, 
+                         const msg_welcome_t *welcome_message) 
+{
+    // We send just the struct itself. Since length is 0, 
+    // the client won't try to read any extra player data.
+    return send_protocol_message(
+        fd,
+        MSG_WELCOME,
+        sender_id,
+        target_id,
+        sizeof(msg_welcome_t),
+        welcome_message
+    );
+}
+
 /* --------------------------------------------------------------------- */
+DEFINE_SEND_FN(hello, MSG_HELLO, msg_hello_t);
+DEFINE_SEND_FN(welcome, MSG_WELCOME, msg_welcome_t);
 DEFINE_SEND_FN(move_attempt, MSG_MOVE_ATTEMPT, msg_move_attempt_t);
 DEFINE_SEND_FN(moved, MSG_MOVED, msg_moved_t);
 DEFINE_SEND_FN(bomb_attempt, MSG_BOMB_ATTEMPT, msg_bomb_attempt_t);
@@ -151,6 +183,7 @@ DEFINE_SEND_FN(explosion_end, MSG_EXPLOSION_END, msg_explosion_end_t);
 DEFINE_SEND_FN(bonus_available, MSG_BONUS_AVAILABLE, msg_bonus_available_t);
 DEFINE_SEND_FN(bonus_retrieved, MSG_BONUS_RETRIEVED, msg_bonus_retrieved_t);
 DEFINE_SEND_FN(block_destroyed, MSG_BLOCK_DESTROYED, msg_block_destroyed_t);
+DEFINE_SEND_FN(player_death, MSG_DEATH, msg_death_t);
 
 /* --------------------------------------------------------------------- */
 /*                      beginning of receiver declaration                */

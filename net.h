@@ -17,6 +17,8 @@ int send_protocol_message(int fd,
     size_t payload_len,
     const void *payload);
 
+DECL_SEND_FN(hello, msg_hello_t);
+DECL_SEND_FN(welcome_message, msg_welcome_t);
 DECL_SEND_FN(map_message, msg_map_t);
 DECL_SEND_FN(move_attempt, msg_move_attempt_t);
 DECL_SEND_FN(moved, msg_moved_t);
@@ -27,8 +29,13 @@ DECL_SEND_FN(explosion_end, msg_explosion_end_t);
 DECL_SEND_FN(bonus_available, msg_bonus_available_t);
 DECL_SEND_FN(bonus_retrieved, msg_bonus_retrieved_t);
 DECL_SEND_FN(block_destroyed, msg_block_destroyed_t);
+DECL_SEND_FN(player_death, msg_death_t);
 
 int send_ping_message(int fd,
+    uint8_t sender_id,
+    uint8_t target_id);
+
+int send_ready_message(int fd,
     uint8_t sender_id,
     uint8_t target_id);
 

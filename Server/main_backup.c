@@ -5,7 +5,6 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <string.h>
-#include <errno.h>
 
 #include <sys/socket.h>
 #include <arpa/inet.h>
@@ -15,7 +14,7 @@
 #include "../msg_protocol.h"
 
 msg_map_t *GAME_MAP;
-int CLIENT_FD; // TODO: remove after cleaning up server->client message handling
+int CLIENT_FD;
 
 uint8_t is_player_on_bomb[8];
 uint8_t bombs_active_for_player[8]; /* > 0 means player has bombs on the map */
@@ -45,27 +44,24 @@ static void kill_player(uint8_t player_id);
 BombArray ACTIVE_BOMBS = { .size = 0 };
 
 /* later create a pool of players and find by sender id or by binding sockets to ids */
-// player_t test_player = {
-//     .id = 1,
-//     .name = "Test Player",
-//     .row = 0,
-//     .col = 1,
-//     .lives = 1,
-//     .ready = true,
-//     .bomb_count = 2,
-//     .bomb_radius = 1,
-//     .bomb_timer_ticks = 20, /* 1 second */
-//     .speed = 3
-// };
+player_t test_player = {
+    .id = 1,
+    .name = "Test Player",
+    .row = 0,
+    .col = 1,
+    .lives = 1,
+    .ready = true,
+    .bomb_count = 2,
+    .bomb_radius = 1,
+    .bomb_timer_ticks = 20, /* 1 second */
+    .speed = 3
+};
 
-int client_sockets[MAX_PLAYERS] = {0};
-bool game_started = false;
 player_t players[MAX_PLAYERS];
 uint8_t player_count = 0;
 
 
 static void handle_client_messages(int fd);
-
 int main() {  
     int server_fd;  
     struct sockaddr_in server_addr, client_addr;  
@@ -88,184 +84,75 @@ int main() {
     listen(server_fd, MAX_PLAYERS);  
     printf("Server listening on port 6969\n");  
 
+    socklen_t addr_len = sizeof(client_addr);
 
+
+    CLIENT_FD = accept(server_fd, (struct sockaddr*)&client_addr, &addr_len);  
+    if (CLIENT_FD < 0) {  
+        perror("Accept failed");  
+        return EXIT_FAILURE;  
+    }
+
+    uint8_t new_id = player_count++;
+    players[new_id] = (player_t){
+        .id             = new_id  + 1,
+        .name           = "Test Player " + new_id, /* just for testing, should be set on map init later */
+        .row            = 1*new_id +1, // just for testing, should be set on map init later
+        .col            = 1*new_id +1,
+        .lives          = 1,
+        .ready          = true,
+        .bomb_count     = 2,
+        .bomb_radius    = 1,
+        .bomb_timer_ticks = 20,
+        .speed          = 3
+    };
+
+    /* send the assigned id to the client so it knows who it is */
+    send_welcome(CLIENT_FD, new_id);
+    printf("Client connected, assigned id %d\n", new_id);
+
+
+    /* -----------------test-input-map-------------------- */
+    uint8_t height, width, c;
+    /* make sure you're running it from the right directory (as ./server)*/
+    FILE *fp = fopen("maps/test_map_1.txt", "r");
+    if (!fp) return 1;
+
+    fscanf(fp, "%hhd %hhd", &height, &width);
+    GAME_MAP = malloc(sizeof(GAME_MAP) + height * width);
+    GAME_MAP->width = width;
+    GAME_MAP->height = height;
+
+    /* skip 4 characters while testing */
+    for (int i = 0; i < 4; i++) {
+        fscanf(fp, " %c", &c);
+    }
+
+    for (int i = 0; i < height * width; i++)
+        fscanf(fp, " %c", &GAME_MAP->cells[i]);
+    
+    fclose(fp);
+
+    usleep(1000000); /* wait ; check if the map will change from client loop */
+
+    /* send MSG_SYNC_BOARD from TARGET_SERVER (255) to everyone (254) - but actually just the CLIENT_FD */
+    printf("Sending map message to client...\n");
+    if (send_map_message(CLIENT_FD, TARGET_SERVER, TARGET_BROADCAST, GAME_MAP) < 0) {
+        perror("Failed to send map message");
+        return EXIT_FAILURE;
+    }
+
+    init_players();
+
+    /* ------------------ main loop ------------------ */
     while (1) {  
-        fd_set read_fds;
-        FD_ZERO(&read_fds);
-        
-        // Add server socket if game hasn't started (Lobby Phase)
-        int max_fd = 0;
-        if (!game_started) {
-            FD_SET(server_fd, &read_fds);
-            max_fd = server_fd;
-        }
+        decrement_move_cooldown();
 
-        // Add all active clients
-        for (int i = 0; i < MAX_PLAYERS; i++) {
-            if (client_sockets[i] > 0) {
-                FD_SET(client_sockets[i], &read_fds);
-                if (client_sockets[i] > max_fd) {
-                    max_fd = client_sockets[i];
-                }
-            }
-        }
+        handle_client_messages(CLIENT_FD);
 
-        // Use select as your tick timer!
-        struct timeval tv;
-        tv.tv_sec = 0;
-        tv.tv_usec = 1000000 / 50000; // e.g., 50000 for 20 TPS
+        bomb_array_tick(&ACTIVE_BOMBS);
 
-        int activity = select(max_fd + 1, &read_fds, NULL, NULL, &tv);
-
-        if (activity < 0 && errno != EINTR) {
-            perror("Error");
-        }
-        /* --- 1. HANDLE NEW CONNECTIONS (LOBBY) --- */
-        if (!game_started && FD_ISSET(server_fd, &read_fds)) {
-            socklen_t addr_len = sizeof(client_addr);
-            int new_fd = accept(server_fd, (struct sockaddr*)&client_addr, &addr_len);
-            
-            if (new_fd >= 0) {
-                bool slot_found = false;
-
-                for (int i = 0; i < MAX_PLAYERS; i++) {
-                    if (client_sockets[i] == 0) {
-                        client_sockets[i] = new_fd;
-                        
-                        // IDs start from 1 (Slot 0 -> ID 1, Slot 1 -> ID 2, etc.)
-                        players[i].id = (uint8_t)(i + 1);
-                        
-                        snprintf(players[i].name, sizeof(players[i].name), "Test Player %d", players[i].id);
-                        
-                        // Initialize Stats
-                        players[i].lives            = 1;
-                        players[i].speed            = 3;
-                        players[i].ready            = false; // Starts ready for your testing
-                        players[i].bomb_count       = 2;
-                        players[i].bomb_radius      = 1;
-                        players[i].bomb_timer_ticks = 20;
-                        
-                        // Test coordinates
-                        players[i].row = (uint8_t)(i + 1);
-                        players[i].col = (uint8_t)(i + 1);
-
-                        // 2. Craft the SIMPLE welcome package
-                        msg_welcome_t welcome_pkg;
-                        memset(&welcome_pkg, 0, sizeof(welcome_pkg));
-                        strncpy(welcome_pkg.server_id, "TEST_SRV", SERVER_ID_LEN);
-                        welcome_pkg.game_status = 0; // Lobby
-                        welcome_pkg.length = 0;      // <--- IMPORTANT: Tells client "no players follow"
-
-                        // 3. Send it using your specific function signature
-                        // 255 is the standard ID for "Server"
-                        send_welcome_message(new_fd, 255, players[i].id, &welcome_pkg);
-
-                        printf("Joined: %s (ID: %d) on FD %d\n", players[i].name, players[i].id, new_fd);
-                        
-                        player_count++;
-                        slot_found = true;
-                        break;
-                    }
-                }
-
-                if (!slot_found) {
-                    printf("Server full! Rejecting connection on FD %d\n", new_fd);
-                    close(new_fd);
-                }
-            }
-        }
-
-
-        /* --- 2. HANDLE INCOMING MESSAGES --- */
-        for (int i = 0; i < MAX_PLAYERS; i++) {
-            if (client_sockets[i] > 0 && FD_ISSET(client_sockets[i], &read_fds)) {
-                // Pass 'i' so we know which player sent the message
-                handle_client_messages(client_sockets[i]);
-                
-                // (Optional: if handle_client_messages closed the socket, set client_sockets[i] = 0)
-            }
-        }
-
-        /* --- 3. LOBBY LOGIC: START GAME? --- */
-        if (!game_started && player_count > 0) {
-            bool everyone_ready = true;
-            for (int i = 0; i < 2; i++) { // Only require 2 players to start for testing, change to player_count for real game
-                // If there's a connected player who ISN'T ready
-                if (client_sockets[i] > 0 && !players[i].ready) {
-                    everyone_ready = false;
-                    break;
-                }
-            }
-
-            if (everyone_ready) {
-                printf("All players ready! Starting game...\n");
-
-                /* --- MAP LOADING --- */
-                FILE *fp = fopen("maps/test_map_1.txt", "r");
-                if (!fp) {
-                    perror("Could not open map file");
-                    return 1;
-                }
-
-                uint8_t h, w, c;
-                // 1. Read dimensions
-                if (fscanf(fp, "%hhu %hhu", &h, &w) != 2) {
-                    fprintf(stderr, "Error reading map dimensions\n");
-                    fclose(fp);
-                    return 1;
-                }
-
-                // 2. Skip the 4 test characters
-                for (int i = 0; i < 4; i++) {
-                    // The leading space in " %c" skips newlines/spaces before the char
-                    if (fscanf(fp, " %c", &c) != 1) {
-                        break; 
-                    }
-                }
-
-                // 3. Allocate: Struct header + cell data
-                // Using sizeof(*GAME_MAP) is a clean way to get the size of the struct
-                GAME_MAP = malloc(sizeof(msg_map_t) + (h * w));
-                if (!GAME_MAP) {
-                    fclose(fp);
-                    return 1;
-                }
-
-                GAME_MAP->height = h;
-                GAME_MAP->width = w;
-
-                // 4. Read the actual map cells
-                for (int i = 0; i < (h * w); i++) {
-                    if (fscanf(fp, " %c", &GAME_MAP->cells[i]) != 1) {
-                        break;
-                    }
-                }
-
-                fclose(fp);
-                printf("Map loaded: %dx%d (skipped 4 test chars)\n", h, w);
-
-                game_started = true;
-                init_players(); // Set map positions
-                
-                // Broadcast map to everyone
-                for (int i = 0; i < MAX_PLAYERS; i++) {
-                    if (client_sockets[i] > 0) {
-                        send_map_message(client_sockets[i], TARGET_SERVER, TARGET_BROADCAST, GAME_MAP);
-                    }
-                }
-            }
-        }
-
-        /* --- 4. GAME TICKS --- */
-        // Note: select() will reduce 'tv' by the time spent waiting.
-        // If it timed out (activity == 0), a full tick duration has passed.
-        if (game_started) {
-            decrement_move_cooldown();
-            bomb_array_tick(&ACTIVE_BOMBS);
-            
-            // You might want to broadcast a MSG_SYNC_BOARD or MSG_MOVED here 
-            // if the state changed during this tick.
-        }
+        usleep(1000000 / TICKS_PER_SECOND); /* 1e6 for microseconds */
     }
 
     return 0;  
@@ -290,7 +177,7 @@ static void bomb_array_explode(BombArray *a, size_t i)
         /* find the player by owner_id, but for now we have constant tester 
             uint8_t owner_id = a->bombs[i].owner_id;
             +1 added because the while loop that ticks these bombs decrements 1 on check */
-        a->bombs[i].timer_ticks = players[a->bombs[i].owner_id].bomb_timer_ticks + 1; 
+        a->bombs[i].timer_ticks = test_player.bomb_timer_ticks + 1; 
 
         GAME_MAP->cells[cell_index] = '@';
 
@@ -520,21 +407,21 @@ static void bomb_array_tick(BombArray *a)
 }
 
 static void handle_bomb_attempt(const msg_generic_t *header, const msg_bomb_attempt_t *bomb_msg) {
-    if (GAME_MAP->cells[bomb_msg->cell_index] == '0' + players[header->sender_id - 1].id) {
-        if (bombs_active_for_player[header->sender_id - 1] >= players[header->sender_id - 1].bomb_count) {
-            printf("Player %d cannot place more bombs (active bombs: %d)\n", header->sender_id, bombs_active_for_player[header->sender_id - 1]);
+    if (GAME_MAP->cells[bomb_msg->cell_index] == '0' + test_player.id) {
+        if (bombs_active_for_player[test_player.id] >= test_player.bomb_count) {
+            printf("Player %d cannot place more bombs (active bombs: %d)\n", test_player.id, bombs_active_for_player[test_player.id]);
             return;
         }
 
-        bombs_active_for_player[header->sender_id - 1]++;
-        is_player_on_bomb[header->sender_id - 1] = 1;
+        bombs_active_for_player[test_player.id]++;
+        is_player_on_bomb[test_player.id] = 1;
 
         bomb_array_push(&ACTIVE_BOMBS, (bomb_t){
             .active = false, /* active means it is currently exploding, useful for tracking in seconds */
-            .owner_id = header->sender_id,
-            .row = players[header->sender_id - 1].row,
-            .col = players[header->sender_id - 1].col,
-            .radius = players[header->sender_id - 1].bomb_radius,
+            .owner_id = test_player.id,
+            .row = test_player.row,
+            .col = test_player.col,
+            .radius = test_player.bomb_radius,
             .timer_ticks = BOMB_DETONATION_TICKS
         });
 
@@ -542,13 +429,13 @@ static void handle_bomb_attempt(const msg_generic_t *header, const msg_bomb_atte
             currently vizualize the bomb on top of the player */
         GAME_MAP->cells[bomb_msg->cell_index] = 'B'; /* mark bomb on the map */
     
-        printf("Player %d placed a bomb at cell index %d\n", players[header->sender_id - 1].id, bomb_msg->cell_index);
+        printf("Player %d placed a bomb at cell index %d\n", test_player.id, bomb_msg->cell_index);
         
-        if (send_bomb(CLIENT_FD, TARGET_SERVER, TARGET_BROADCAST, &(msg_bomb_t){ .player_id = players[header->sender_id - 1].id, .cell_index = bomb_msg->cell_index }) < 0) {
+        if (send_bomb(CLIENT_FD, TARGET_SERVER, TARGET_BROADCAST, &(msg_bomb_t){ .player_id = test_player.id, .cell_index = bomb_msg->cell_index }) < 0) {
             perror("Failed to send bomb message");
         }
     } else {
-        printf("Invalid bomb placement by player %d (header id: %d) at cell index %d\n", players[header->sender_id - 1].id, header->sender_id, bomb_msg->cell_index);
+        printf("Invalid bomb placement by player %d (header id: %d) at cell index %d\n", test_player.id, header->sender_id, bomb_msg->cell_index);
     }
 }
 
@@ -558,10 +445,10 @@ int is_bonus_cell(char cell) {
 
 static void apply_bonus(uint8_t player_id, char bonus_type, uint16_t new_pos) {
     switch (bonus_type) {
-        case 'A': players[player_id].speed += 1;              break;
-        case 'T': players[player_id].bomb_timer_ticks += 10;  break;
-        case 'R': players[player_id].bomb_radius += 1;        break;
-        case 'N': players[player_id].bomb_count += 1;         break;	
+        case 'A': test_player.speed += 1;              break;
+        case 'T': test_player.bomb_timer_ticks += 10;  break;
+        case 'R': test_player.bomb_radius += 1;        break;
+        case 'N': test_player.bomb_count += 1;         break;	
     }
     if (send_bonus_retrieved(CLIENT_FD, TARGET_SERVER, TARGET_BROADCAST, &(msg_bonus_retrieved_t){ .player_id = player_id, .cell_index = new_pos }) < 0) {
         perror("Failed to send bonus retrieved message");
@@ -571,18 +458,18 @@ static void apply_bonus(uint8_t player_id, char bonus_type, uint16_t new_pos) {
 
 static void handle_move_attempt(const msg_generic_t *header, const msg_move_attempt_t *move_msg) {
     printf("Received MOVE_ATTEMPT from client: %d! Direction: %c\n", header->sender_id, move_msg->direction);
-    if (player_move_cooldown[header->sender_id - 1] > 0) {
+    if (player_move_cooldown[header->sender_id] > 0) {
         /* player is moving too fast, silently drop or send a blocked response */
-        printf("Player %d is moving too fast! Cooldown: %d ticks\n", header->sender_id, player_move_cooldown[header->sender_id - 1]);
+        printf("Player %d is moving too fast! Cooldown: %d ticks\n", header->sender_id, player_move_cooldown[header->sender_id]);
         return;
     }
     /* reset cooldown based on this player's speed */
     /* speed 4 -> cooldown = 20/4 = 5 ticks between moves */
-    player_move_cooldown[header->sender_id - 1] = (uint8_t)(TICKS_PER_SECOND / players[header->sender_id - 1].speed); // TODO: replace test_player with lookup by header->sender_id when multiple players are implemented
+    player_move_cooldown[header->sender_id] = (uint8_t)(TICKS_PER_SECOND / test_player.speed); // TODO: replace test_player with lookup by header->sender_id when multiple players are implemented
 
-    uint16_t pos = make_cell_index(players[header->sender_id - 1].row, players[header->sender_id - 1].col, GAME_MAP->width);
-    int16_t tmp_row = players[header->sender_id - 1].row;
-    int16_t tmp_col = players[header->sender_id - 1].col;
+    uint16_t pos = make_cell_index(test_player.row, test_player.col, GAME_MAP->width);
+    int16_t tmp_row = test_player.row;
+    int16_t tmp_col = test_player.col;
     /* update player position based on direction */
     switch (move_msg->direction) {
         case 'U': 
@@ -616,40 +503,27 @@ static void handle_move_attempt(const msg_generic_t *header, const msg_move_atte
     if (GAME_MAP->cells[new_pos] == '.' || 
         is_bonus_cell(GAME_MAP->cells[new_pos]) ||
         is_on_laser(GAME_MAP->cells[new_pos])) {
-        if (!is_player_on_bomb[players[header->sender_id - 1].id]) {
+        if (!is_player_on_bomb[test_player.id]) {
             GAME_MAP->cells[pos] = '.'; /* clear old position */
         } else {
             /* player is moving off the bomb, keep it on screen */
-            is_player_on_bomb[players[header->sender_id - 1].id] = 0;
+            is_player_on_bomb[test_player.id] = 0;
         }
         if (is_bonus_cell(GAME_MAP->cells[new_pos])) {
-            apply_bonus(players[header->sender_id - 1].id, GAME_MAP->cells[new_pos], new_pos);
+            apply_bonus(test_player.id, GAME_MAP->cells[new_pos], new_pos);
         }
         if (!is_on_laser(GAME_MAP->cells[new_pos])) {
-            GAME_MAP->cells[new_pos] = '0' + players[header->sender_id - 1].id; /* move player to new position */
+            GAME_MAP->cells[new_pos] = '0' + test_player.id; /* move player to new position */
         } else {
-            printf("Player %d stepped on a laser at cell index %d!\n", players[header->sender_id - 1].id, new_pos);
-            kill_player(players[header->sender_id - 1].id);
+            printf("Player %d stepped on a laser at cell index %d!\n", test_player.id, new_pos);
+            kill_player(test_player.id);
             return;
         }
-        players[header->sender_id - 1].row = tmp_row;
-        players[header->sender_id - 1].col = tmp_col;
+        test_player.row = tmp_row;
+        test_player.col = tmp_col;
         
-        // BROADCAST the move to EVERYONE (including the person who moved)
-        for (int i = 0; i < MAX_PLAYERS; i++) {
-            int target_fd = client_sockets[i];
-            
-            if (target_fd > 0) { // Only send to active connections
-                msg_moved_t move_msg = {
-                    .player_id = header->sender_id, // Use the ID from the incoming header
-                    .cell_index = new_pos
-                };
-
-                if (send_moved(target_fd, TARGET_SERVER, TARGET_BROADCAST, &move_msg) < 0) {
-                    // If one send fails, it might just be a disconnected player
-                    perror("Failed to broadcast move to a client");
-                }
-            }
+        if (send_moved(CLIENT_FD, TARGET_SERVER, TARGET_BROADCAST, &(msg_moved_t){ .player_id = test_player.id, .cell_index = new_pos }) < 0) {
+            perror("Failed to send moved message");
         }
     } else {
         blocked_move:
@@ -670,9 +544,9 @@ static inline int is_on_laser(char c) {
 }
 
 static void kill_player(uint8_t player_id) {
-    players[player_id].lives = 0;
+    test_player.lives = 0;
 
-    if (players[player_id].lives == 0) {
+    if (test_player.lives == 0) {
         printf("Player %d has been killed by a laser!\n", player_id);
         /* send player death message to clients */
         if (send_player_death(CLIENT_FD, TARGET_SERVER, TARGET_BROADCAST, &(msg_death_t){ .player_id = player_id }) < 0) {
@@ -699,11 +573,7 @@ static void dispatch(int fd, const msg_generic_t *header, const void *payload) {
             printf("Received PING from client!\n");
             break;
         }
-        case MSG_SET_READY: {
-            printf("Received SET_READY from client %d!\n", header->sender_id);
-            players[header->sender_id - 1].ready = true;
-            break;
-        }
+        
         case MSG_MOVE_ATTEMPT: {
             handle_move_attempt(header, (const msg_move_attempt_t *)payload);
             break;

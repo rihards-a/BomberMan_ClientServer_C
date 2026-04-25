@@ -52,14 +52,14 @@ void resize_handler(int sig) {
 player_t SELF_PLAYER = {
     .id = 1,
     .name = "Test Player",
-    .row = 0,
-    .col = 1,
+    .row = -1,
+    .col = -1,
     .lives = 1,
-    .ready = true,
+    .ready = false,
     .bomb_count = 2,
     .bomb_radius = 1,
     .bomb_timer_ticks = 20,
-    .speed = 4
+    .speed = 3
 };
 
 static void handle_user_input(int ch);
@@ -150,7 +150,10 @@ int main() {
         handle_server_messages(CLIENT_FD);
 
         int ch = getch();
-        handle_user_input(ch);
+
+        if (SELF_PLAYER.lives != 0) {
+            handle_user_input(ch);
+        }
 
         draw_game_board();
 
@@ -289,26 +292,85 @@ static void handle_bomb(const msg_generic_t *header, const msg_bomb_t *bomb_msg)
     GAME_MAP.cells[bomb_msg->cell_index] = 'B';
 }
 
+
+// static void handle_moved(const msg_generic_t *header, const msg_moved_t *moved_msg) {
+//     (void)header; /* might be useful later */
+//     uint16_t cur_pos = make_cell_index(SELF_PLAYER.row, SELF_PLAYER.col, GAME_MAP.width);
+
+//     /* find old position of the player and clear it */
+//     if (GAME_MAP.cells[cur_pos] == '0' + moved_msg->player_id) {
+//         GAME_MAP.cells[cur_pos] = '.';
+//     }
+
+//     /* check if it's for self */
+//     if (moved_msg->player_id == SELF_PLAYER.id) {
+//         /* update test player position */
+//         SELF_PLAYER.row = moved_msg->cell_index / GAME_MAP.width;
+//         SELF_PLAYER.col = moved_msg->cell_index % GAME_MAP.width;
+//     }
+    
+//     uint8_t player_id = moved_msg->player_id;
+//     uint16_t cell_index = moved_msg->cell_index;
+//     /* set new position of the player */
+//     GAME_MAP.cells[cell_index] = '0' + player_id;
+// }
+
+
 static void handle_moved(const msg_generic_t *header, const msg_moved_t *moved_msg) {
+    (void)header;
+    uint8_t player_id = moved_msg->player_id;
+    uint16_t new_index = moved_msg->cell_index;
+    char player_char = '0' + player_id;
+
+    // 1. SCAN the map to find and "erase" the player's old position.
+    // This ensures no "trails" are left behind for ANY player.
+    for (int i = 0; i < (GAME_MAP.height * GAME_MAP.width); i++) {
+        if (GAME_MAP.cells[i] == player_char) {
+            GAME_MAP.cells[i] = '.'; // Restore the floor
+            // Note: We don't break here just in case there are duplicates 
+            // from a previous bug, though usually, there's only one.
+        }
+    }
+
+    // 2. Update SELF_PLAYER coordinates if the move was ours
+    if (player_id == SELF_PLAYER.id) {
+        SELF_PLAYER.row = new_index / GAME_MAP.width;
+        SELF_PLAYER.col = new_index % GAME_MAP.width;
+    } 
+    // Otherwise, update the OTHER_PLAYERS tracking (useful for logic later)
+    else {
+        for (int i = 0; i < 7; i++) {
+            if (OTHER_PLAYERS[i].id == player_id) {
+                OTHER_PLAYERS[i].row = new_index / GAME_MAP.width;
+                OTHER_PLAYERS[i].col = new_index % GAME_MAP.width;
+                break;
+            }
+        }
+    }
+
+    // 3. SET the new position on the map
+    // Your draw function will pick this up on the next tick
+    GAME_MAP.cells[new_index] = player_char;
+}
+
+static void handle_death(const msg_generic_t *header, const msg_death_t *death_msg) {
     (void)header; /* might be useful later */
     uint16_t cur_pos = make_cell_index(SELF_PLAYER.row, SELF_PLAYER.col, GAME_MAP.width);
+    uint8_t player_id = death_msg->player_id;
 
-    /* find old position of the player and clear it */
-    if (GAME_MAP.cells[cur_pos] == '0' + moved_msg->player_id) {
+    /* clear the cell of the dead player */
+    if (GAME_MAP.cells[cur_pos] == '0' + player_id) {
         GAME_MAP.cells[cur_pos] = '.';
     }
 
-    /* check if it's for self */
-    if (moved_msg->player_id == SELF_PLAYER.id) {
+        /* check if it's for self */
+    if (death_msg->player_id == SELF_PLAYER.id) {
         /* update test player position */
-        SELF_PLAYER.row = moved_msg->cell_index / GAME_MAP.width;
-        SELF_PLAYER.col = moved_msg->cell_index % GAME_MAP.width;
+        SELF_PLAYER.row = -1;
+        SELF_PLAYER.col = -1;
     }
-    
-    uint8_t player_id = moved_msg->player_id;
-    uint16_t cell_index = moved_msg->cell_index;
-    /* set new position of the player */
-    GAME_MAP.cells[cell_index] = '0' + player_id;
+
+    SELF_PLAYER.lives = 0;
 }
 
 static void handle_sync_board(const msg_generic_t *header, const msg_map_t *map_msg) {
@@ -353,6 +415,14 @@ static void dispatch(int fd, const msg_generic_t *header, const void *payload) {
         case MSG_EXPLOSION_END:
             handle_explosion_end(header, (const msg_explosion_end_t *)payload);
             break;
+        case MSG_DEATH:
+            handle_death(header, (const msg_death_t *)payload);
+            break;
+        case MSG_WELCOME:
+            SELF_PLAYER.id = header->target_id;
+            SELF_PLAYER.row = header->target_id;
+            SELF_PLAYER.col = header->target_id;
+            break;
 
     }
 }
@@ -384,7 +454,7 @@ static void handle_movement_input(int ch) {
     if (ch == KEY_RIGHT) { direction = 'R'; }
     
     msg_move_attempt_t move_msg = { .direction = direction };
-    send_move_attempt(CLIENT_FD, 1, 255, &move_msg);
+    send_move_attempt(CLIENT_FD, SELF_PLAYER.id, 255, &move_msg);
 }
 
 static void handle_user_input(int ch) {
@@ -396,6 +466,11 @@ static void handle_user_input(int ch) {
         if (ch == ' ') {
             msg_bomb_attempt_t bomb_msg = { .cell_index = make_cell_index(SELF_PLAYER.row, SELF_PLAYER.col, GAME_MAP.width) };
             send_bomb_attempt(CLIENT_FD, SELF_PLAYER.id, 255, &bomb_msg);
+        }
+        if (ch == 'r' || ch == 'R') {
+            /* toggle ready state */
+            SELF_PLAYER.ready = !SELF_PLAYER.ready;
+            send_ready_message(CLIENT_FD, SELF_PLAYER.id, 255);
         }
         if (ch == 27)        { /* ESC */ exit(1); }
     }
