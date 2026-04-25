@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#define MAX_HEIGHT 255
+#define MAX_WIDTH 255
 #define MAX_BOMBS 64
 #define MAX_PLAYERS 8
 #define MAX_NAME_LEN 30

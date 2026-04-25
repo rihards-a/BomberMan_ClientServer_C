@@ -75,27 +75,32 @@ int main() {
     }  
     printf("Server connection successful\n");  
 
-    /* MAKE INTRO SCREEN/TITLE SCREEN ASCII ART */
-    // /* receive map data */
-    // /* implement init receiving later, for now const until receive the server map in loop */
-    // /* the size has to be at least equal to the map the server will send, 
-    //     otherwise will overflow from memcpy later on */
-    // GAME_MAP.height = 6;
-    // GAME_MAP.width = 9;
-    // GAME_MAP.cells = malloc(GAME_MAP.height * GAME_MAP.width);
-    //     /* . = empty, H = hard wall, 1-8 = player IDs */
-    // char *test_map = "........."
-    //                  ".H.H.H.H."
-    //                  ".1......."
-    //                  ".H.H.H.H."
-    //                  ".2......."
-    //                  ".........";
-    // memcpy(GAME_MAP.cells, test_map, 54);
-    // /* implement init receiving later, for now const until receive the server map in loop */
-    GAME_MAP.height = 120;
-    GAME_MAP.width = 160;
-    GAME_MAP.cells = malloc(GAME_MAP.height * GAME_MAP.width);
-    memset(GAME_MAP.cells, '.', GAME_MAP.height * GAME_MAP.width);
+    /* TITLE SCREEN ASCII ART */
+    const char *title =
+    "..................."
+    ".HH...H...H.H..HH.."
+    ".H.H.H.H..H.H..H.H."
+    ".HH..H.H.H.H.H.HH.."
+    ".H.H.H.H.H.H.H.H.H."
+    ".HH...H..H.H.H.HH.."
+    "..................."
+    ".HHH.HH......T....."
+    ".H...H.H....HHH...."
+    ".HHH.HH....HHHHH..."
+    ".H...H.H...HHHHH..."
+    ".HHH.H.H....HHH...."
+    "..................."
+    "..H.H....H...H..H.."
+    "..H.H...H.H..HH.H.."
+    ".H.H.H.HHHHH.HHHH.."
+    ".H.H.H.H...H.H.HH.."
+    ".H.H.H.H...H.H..H.."
+    "...................";
+    GAME_MAP.cells = malloc(MAX_HEIGHT * MAX_WIDTH);
+    GAME_MAP.height = 19;
+    GAME_MAP.width = 19;
+
+    memcpy(GAME_MAP.cells, title, GAME_MAP.height*GAME_MAP.width);
 
     initscr();
     cbreak();       /* disables line buffering */
@@ -284,6 +289,7 @@ static void handle_sync_board(const msg_generic_t *header, const msg_map_t *map_
     GAME_MAP.height = map_msg->height;
     size_t cells_len = (size_t)map_msg->width * (size_t)map_msg->height;
     memcpy(GAME_MAP.cells, map_msg->cells, cells_len);
+    resized = 1; /* trigger resize to redraw the board with new dimensions */
 }
 
 static void handle_disconnect() {
