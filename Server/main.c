@@ -14,6 +14,19 @@
 #include "../config.h"
 #include "../msg_protocol.h"
 
+
+#define BROADCAST_TO_EVERYONE(SEND_EXPR)                      \
+do {                                                          \
+    for (int i = 0; i < MAX_PLAYERS; ++i) {                   \
+        int target_fd = client_sockets[i];                    \
+        if (target_fd > 0) {                                  \
+            if ((SEND_EXPR) < 0) {                            \
+                perror("Failed to broadcast message");        \
+            }                                                 \
+        }                                                     \
+    }                                                         \
+} while (0)
+
 msg_map_t *GAME_MAP;
 int CLIENT_FD; // TODO: remove after cleaning up server->client message handling
 
@@ -628,21 +641,12 @@ static void handle_move_attempt(const msg_generic_t *header, const msg_move_atte
         players[header->sender_id - 1].col = tmp_col;
         
         // BROADCAST the move to EVERYONE (including the person who moved)
-        for (int i = 0; i < MAX_PLAYERS; i++) {
-            int target_fd = client_sockets[i];
-            
-            if (target_fd > 0) { // Only send to active connections
-                msg_moved_t move_msg = {
-                    .player_id = header->sender_id, // Use the ID from the incoming header
-                    .cell_index = new_pos
-                };
+        msg_moved_t move_msg = {
+            .player_id = header->sender_id, // Use the ID from the incoming header
+            .cell_index = new_pos
+        };
+        BROADCAST_TO_EVERYONE(send_moved(target_fd, TARGET_SERVER, TARGET_BROADCAST, &move_msg));
 
-                if (send_moved(target_fd, TARGET_SERVER, TARGET_BROADCAST, &move_msg) < 0) {
-                    // If one send fails, it might just be a disconnected player
-                    perror("Failed to broadcast move to a client");
-                }
-            }
-        }
     } else {
         blocked_move:
             printf("Move blocked to position (%d, %d)\n", tmp_row, tmp_col);
