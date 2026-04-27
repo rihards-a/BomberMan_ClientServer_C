@@ -123,7 +123,7 @@ int send_map_message(int fd,
     size_t map_len = sizeof(*map) + cells_len;
 
     return send_protocol_message(fd,
-        MSG_SYNC_BOARD,
+        MSG_MAP,
         sender_id,
         target_id,
         map_len,
@@ -136,6 +136,18 @@ int send_ping_message(int fd,
 {
     return send_protocol_message(fd, 
         MSG_PING, 
+        sender_id, 
+        target_id, 
+        0, 
+        NULL);
+}
+
+int send_leave_message(int fd, 
+    uint8_t sender_id, 
+    uint8_t target_id)
+{
+    return send_protocol_message(fd, 
+        MSG_LEAVE, 
         sender_id, 
         target_id, 
         0, 
@@ -159,21 +171,20 @@ int send_welcome_message(int fd,
                          uint8_t target_id, 
                          const msg_welcome_t *welcome_message) 
 {
-    // We send just the struct itself. Since length is 0, 
-    // the client won't try to read any extra player data.
+    size_t welcome_len = sizeof(msg_welcome_t) + welcome_message->length;
+
     return send_protocol_message(
         fd,
         MSG_WELCOME,
         sender_id,
         target_id,
-        sizeof(msg_welcome_t),
+        welcome_len,
         welcome_message
     );
 }
 
 /* --------------------------------------------------------------------- */
 DEFINE_SEND_FN(hello, MSG_HELLO, msg_hello_t);
-DEFINE_SEND_FN(welcome, MSG_WELCOME, msg_welcome_t);
 DEFINE_SEND_FN(move_attempt, MSG_MOVE_ATTEMPT, msg_move_attempt_t);
 DEFINE_SEND_FN(moved, MSG_MOVED, msg_moved_t);
 DEFINE_SEND_FN(bomb_attempt, MSG_BOMB_ATTEMPT, msg_bomb_attempt_t);
@@ -266,7 +277,7 @@ static int recv_fixed_message(int fd, void **payload, size_t *payload_len, size_
     RECV_FIXED_CASE(MSG_BONUS_RETRIEVED, msg_bonus_retrieved_t);
     RECV_FIXED_CASE(MSG_BLOCK_DESTROYED, msg_block_destroyed_t);
 
-    case MSG_SYNC_BOARD: {
+    case MSG_MAP: {
         msg_map_t prefix;
         if (recv_exact(fd, &prefix, sizeof(prefix)) != 0)
             return -1;
@@ -297,7 +308,7 @@ static int recv_fixed_message(int fd, void **payload, size_t *payload_len, size_
         if (recv_exact(fd, &prefix, sizeof(prefix)) != 0)
             return -1;
 
-        size_t clients_len = (size_t)prefix.length * sizeof(welcome_client_t);
+        size_t clients_len = (size_t)prefix.length; // * sizeof(welcome_client_t); length is already in bytes
         size_t total_len   = sizeof(msg_welcome_t) + clients_len;
 
         msg_welcome_t *msg = malloc(total_len);

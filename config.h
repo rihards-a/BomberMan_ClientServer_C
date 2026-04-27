@@ -53,7 +53,7 @@ typedef enum {
     MSG_BONUS_AVAILABLE = 45,
     MSG_BONUS_RETRIEVED = 46,
     MSG_BLOCK_DESTROYED = 47,
-    // MSG_MAP             = 50,
+    MSG_MAP             = 50,
     MSG_SYNC_BOARD      = 100,/* reply contains the map */
     MSG_SYNC_REQUEST    = 101 /* reply with SYNC_BOARD */
 } msg_type_t;

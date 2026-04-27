@@ -39,6 +39,10 @@ int send_ready_message(int fd,
     uint8_t sender_id,
     uint8_t target_id);
 
+int send_leave_message(int fd,
+    uint8_t sender_id,
+    uint8_t target_id);
+
 int recv_protocol_message(int fd,
     msg_generic_t *header,
     void **payload,

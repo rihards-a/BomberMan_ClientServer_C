@@ -6,6 +6,8 @@
 #include <unistd.h>
 #include <string.h>
 
+#include <stdarg.h> // for log file
+
 #include <sys/socket.h>
 #include <arpa/inet.h>  
 
@@ -37,6 +39,28 @@ enum {
         + SPACING_WIDTH
 };
 
+void game_log(const char *format, ...) {
+    // Open in "a" (append) mode so we don't overwrite previous logs
+    FILE *log_file = fopen("debug.log", "a");
+    if (log_file == NULL) {
+        return; 
+    }
+
+    // Initialize the variadic argument list
+    va_list args;
+    va_start(args, format);
+
+    // vfprintf is the magic function that lets you pass a va_list 
+    // to a file, essentially acting like printf for files.
+    vfprintf(log_file, format, args);
+
+    va_end(args);
+
+    // Add a newline and close to ensure data is flushed to disk
+    fprintf(log_file, "\n");
+    fclose(log_file);
+}
+
 WINDOW *TERMINAL_WIN = NULL, *SIDEBAR_WIN = NULL, *MAP_WIN = NULL;
 uint8_t BLOCK_SIZE;
 int CLIENT_FD;
@@ -50,7 +74,7 @@ void resize_handler(int sig) {
 }
 
 player_t SELF_PLAYER = {
-    .id = 1,
+    .id = 0,
     .name = "Test Player",
     .row = -1,
     .col = -1,
@@ -117,18 +141,31 @@ int main() {
 
     /* init other player storage */
     OTHER_PLAYERS = (player_t*)malloc(7*sizeof(player_t));
-    OTHER_PLAYERS[0] = (player_t){
-        .id = 2,
-        .name = "Other Test Player",
-        .row = 5,
-        .col = 5,
-        .lives = 1,
-        .ready = true,
-        .bomb_count = 2,
-        .bomb_radius = 1,
-        .bomb_timer_ticks = 20,
-        .speed = 4
-    };
+    // OTHER_PLAYERS[0] = (player_t){
+    //     .id = 1,
+    //     .name = "Other Test Player",
+    //     .row = 1,
+    //     .col = 1,
+    //     .lives = 1,
+    //     .ready = true,
+    //     .bomb_count = 2,
+    //     .bomb_radius = 1,
+    //     .bomb_timer_ticks = 20,
+    //     .speed = 4
+    // };
+
+    // OTHER_PLAYERS[1] = (player_t){
+    //     .id = 3,
+    //     .name = "Another Test Player",
+    //     .row = 3,
+    //     .col = 3,
+    //     .lives = 1,
+    //     .ready = true,
+    //     .bomb_count = 2,
+    //     .bomb_radius = 1,
+    //     .bomb_timer_ticks = 20,
+    //     .speed = 4
+    // };
 
 
     initscr();
@@ -348,7 +385,7 @@ static void handle_death(const msg_generic_t *header, const msg_death_t *death_m
     }
 }
 
-static void handle_sync_board(const msg_generic_t *header, const msg_map_t *map_msg) {
+static void handle_map_message(const msg_generic_t *header, const msg_map_t *map_msg) {
     (void)header; /* might be useful later */
     /* update local game map with new data */
     GAME_MAP.width = map_msg->width;
@@ -356,6 +393,60 @@ static void handle_sync_board(const msg_generic_t *header, const msg_map_t *map_
     size_t cells_len = (size_t)map_msg->width * (size_t)map_msg->height;
     memcpy(GAME_MAP.cells, map_msg->cells, cells_len);
     resized = 1; /* trigger resize to redraw the board with new dimensions */
+
+    for (uint16_t i = 0; i < cells_len; i++) {
+        char cell = GAME_MAP.cells[i];
+        if (cell >= '1' && cell <= '8') {
+            uint8_t player_id = cell - '0';
+            if (player_id == SELF_PLAYER.id) {
+                SELF_PLAYER.row = i / GAME_MAP.width;
+                SELF_PLAYER.col = i % GAME_MAP.width;
+            } else {
+                for (int j = 0; j < 7; j++) {
+                    // game_log("Checking OTHER_PLAYERS[%d] with id %d against player_id %d", j, OTHER_PLAYERS[j].id, player_id);
+                    if (OTHER_PLAYERS[j].id == player_id) {
+                        OTHER_PLAYERS[j].row = i / GAME_MAP.width;
+                        OTHER_PLAYERS[j].col = i % GAME_MAP.width;
+                        // game_log("Setting player %d position to (%d, %d)", OTHER_PLAYERS[j].id, OTHER_PLAYERS[j].row, OTHER_PLAYERS[j].col);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+}
+
+static void handle_welcome(const msg_generic_t *header, const msg_welcome_t *welcome_msg) {
+    (void)header; /* might be useful later */
+    // (void)welcome_msg; /* to silence unused parameter warning for now */
+
+    // SELF_PLAYER.id = header->target_id;
+    if (SELF_PLAYER.id == 0) {
+        // game_log("Setting SELF_PLAYER.id to %d based on welcome message target_id %d", header->target_id, header->target_id);
+        SELF_PLAYER.id = header->target_id;
+    }
+
+    // handle other players struct info
+    int num_clients = welcome_msg->length / sizeof(welcome_client_t);
+    // game_log("Received welcome message with %d clients", num_clients);
+    for (int i = 0; i < num_clients; i++) {
+        welcome_client_t client_info = welcome_msg->clients[i];
+        if (client_info.id == SELF_PLAYER.id) {
+            continue;
+        }
+        for (int j = 0; j < 7; j++) {
+            if (OTHER_PLAYERS[j].id == client_info.id || OTHER_PLAYERS[j].id == 0) {
+                OTHER_PLAYERS[j].id = client_info.id;
+                // game_log("Updating OTHER_PLAYERS[%d] with id %d", j, OTHER_PLAYERS[j].id);
+                strncpy(OTHER_PLAYERS[j].name, client_info.player_name, MAX_NAME_LEN);
+                OTHER_PLAYERS[j].name[MAX_NAME_LEN] = '\0';
+                OTHER_PLAYERS[j].ready = client_info.ready;
+                break;
+            }
+        }
+    }
+
 }
 
 static void handle_disconnect() {
@@ -373,8 +464,8 @@ static void dispatch(int fd, const msg_generic_t *header, const void *payload) {
     (void)fd; /* not needed for now, but might be useful later for messages that require a response */
 
     switch (header->msg_type) {
-        case MSG_SYNC_BOARD:
-            handle_sync_board(header, (const msg_map_t *)payload);
+        case MSG_MAP:
+            handle_map_message(header, (const msg_map_t *)payload);
             break;
         case MSG_MOVED:
             handle_moved(header, (const msg_moved_t *)payload);
@@ -394,11 +485,11 @@ static void dispatch(int fd, const msg_generic_t *header, const void *payload) {
             handle_death(header, (const msg_death_t *)payload);
             break;
         case MSG_WELCOME:
-            SELF_PLAYER.id = header->target_id;
-            SELF_PLAYER.row = header->target_id;
-            SELF_PLAYER.col = header->target_id;
+            handle_welcome(header, (const msg_welcome_t *)payload);
             break;
-
+        case MSG_DISCONNECT:
+            handle_disconnect();
+            break;
     }
 }
 
@@ -445,6 +536,9 @@ static void handle_user_input(int ch) {
         else if (ch == 'r' || ch == 'R') {
             SELF_PLAYER.ready = !SELF_PLAYER.ready;
             send_ready_message(CLIENT_FD, SELF_PLAYER.id, 255);
+        }
+        else if (ch == 'q' || ch == 'Q') {
+            send_leave_message(CLIENT_FD, SELF_PLAYER.id, 255);
         }
         else if (ch == 27) { /* ESC */ exit(1); }
     }

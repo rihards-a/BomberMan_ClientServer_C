@@ -139,14 +139,35 @@ int main() {
                         players[i].bomb_radius      = 1;
                         players[i].bomb_timer_ticks = 20;
 
-                        /* TODO, make a proper welcome message */
-                        msg_welcome_t welcome_pkg;
-                        memset(&welcome_pkg, 0, sizeof(welcome_pkg));
-                        strncpy(welcome_pkg.server_id, "TEST_SRV", SERVER_ID_LEN);
-                        welcome_pkg.game_status = 0; /* lobby status */
-                        welcome_pkg.length = 0;
-                        
-                        send_welcome_message(new_fd, 255, players[i].id, &welcome_pkg);
+
+                        welcome_client_t* client_info = malloc(MAX_PLAYERS*sizeof(welcome_client_t));
+                        uint8_t client_count = 0;
+                        for (int j = 0; j < MAX_PLAYERS; j++) {
+                            if (players[j].id != 0) {
+                                client_info[client_count].id = players[j].id;
+                                strncpy(client_info[client_count].player_name, players[j].name, sizeof(client_info[client_count].player_name));
+                                client_info[client_count].player_name[PLAYER_NAME_LEN - 1] = '\0';
+                                client_info[client_count].ready = players[j].ready;
+                                client_count++;
+                            }
+                        }
+
+                        size_t payload_size = client_count * sizeof(welcome_client_t);
+                        size_t total_msg_size = sizeof(msg_welcome_t) + payload_size;
+
+                        msg_welcome_t *welcome_msg = malloc(total_msg_size);
+
+
+                        strncpy(welcome_msg->server_id, "TEST_SRV", SERVER_ID_LEN);
+                        welcome_msg->game_status = 0;
+                        welcome_msg->length = payload_size;
+                        memcpy(welcome_msg->clients, client_info, payload_size);
+
+                        printf("Broadcasting welcome message for new player %s (ID: %d)\n", players[i].name, players[i].id);
+                        BROADCAST_TO_EVERYONE(send_welcome_message(target_fd, 255, players[i].id, welcome_msg));
+
+                        free(client_info);
+                        free(welcome_msg);
 
                         printf("Joined: %s (ID: %d) on FD %d\n", players[i].name, players[i].id, new_fd);
                         
@@ -190,12 +211,14 @@ int main() {
                 /* set map positions for players here perhaps? */
                 init_players(); 
                 
-                for (int i = 0; i < MAX_PLAYERS; i++) {
-                    if (client_sockets[i] > 0) {
-                        send_map_message(client_sockets[i], 
-                            TARGET_SERVER, TARGET_BROADCAST, GAME_MAP);
-                    }
-                }
+                // for (int i = 0; i < MAX_PLAYERS; i++) {
+                //     if (client_sockets[i] > 0) {
+                //         send_map_message(client_sockets[i], 
+                //             TARGET_SERVER, TARGET_BROADCAST, GAME_MAP);
+                //     }
+                // }
+
+                BROADCAST_TO_EVERYONE(send_map_message(target_fd, TARGET_SERVER, TARGET_BROADCAST, GAME_MAP));
             }
         }
 
@@ -207,6 +230,17 @@ int main() {
 
         usleep(1000000 / TICKS_PER_SECOND); /* 1e6 for microsecond to second */
     }
+
+    // TODO: server cleanup, though currently unreachable due to infinite loop and no disconnect handling
+    printf("Closing client sockets...\n");
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        if (client_sockets[i] > 0) {
+            close(client_sockets[i]);
+        }
+    }
+
+    printf("Closing server socket...\n");
+    close(server_fd);
 
     return 0;  
 }
@@ -253,6 +287,8 @@ static void init_map_from_file(const char *filename) {
     /* update player speed, timer ticks, radius and positions */
     for (int i = 0; i < MAX_PLAYERS; i++) {
         if (client_sockets[i] > 0) {
+            printf("Setting player %d speed to %d, bomb radius to %d, bomb timer ticks to %d based on map config\n", 
+                players[i].id, player_speed, bomb_radius, bomb_timer_ticks);
             players[i].speed = player_speed;
             players[i].bomb_radius = bomb_radius;
             players[i].bomb_timer_ticks = bomb_timer_ticks;
@@ -275,14 +311,12 @@ static inline int is_on_laser(char c) {
 }
 
 static void kill_player(uint8_t player_id) {
-    players[player_id].lives = 0;
+    players[player_id - 1].lives = 0;
 
-    if (players[player_id].lives == 0) {
+    if (players[player_id - 1].lives == 0) {
         printf("Player %d has been killed by a laser!\n", player_id);
         /* send player death message to clients */
-        if (send_player_death(CLIENT_FD, TARGET_SERVER, TARGET_BROADCAST, &(msg_death_t){ .player_id = player_id }) < 0) {
-            perror("Failed to send player death message");
-        }
+        BROADCAST_TO_EVERYONE(send_player_death(target_fd, TARGET_SERVER, TARGET_BROADCAST, &(msg_death_t){ .player_id = player_id }));
     }
 }
 
@@ -302,7 +336,7 @@ static void bomb_array_explode(BombArray *a, size_t i)
         /* find the player by owner_id, but for now we have constant tester 
             uint8_t owner_id = a->bombs[i].owner_id;
             +1 added because the while loop that ticks these bombs decrements 1 on check */
-        a->bombs[i].timer_ticks = players[a->bombs[i].owner_id].bomb_timer_ticks + 1; 
+        a->bombs[i].timer_ticks = players[a->bombs[i].owner_id - 1].bomb_timer_ticks + 1; 
 
         GAME_MAP->cells[cell_index] = '@';
 
@@ -430,12 +464,16 @@ static void bomb_array_explode(BombArray *a, size_t i)
 
         /* send explosion start message to clients */
         printf("Bomb at (%d, %d) started exploding!\n", a->bombs[i].row, a->bombs[i].col);
-        if (send_explosion_start(CLIENT_FD, TARGET_SERVER, TARGET_BROADCAST, &(msg_explosion_start_t){
+        // if (send_explosion_start(CLIENT_FD, TARGET_SERVER, TARGET_BROADCAST, &(msg_explosion_start_t){
+        //     .cell_index = cell_index,
+        //     .radius = a->bombs[i].radius
+        // }) < 0) {
+        //     perror("Failed to send explosion start message");
+        // }
+        BROADCAST_TO_EVERYONE(send_explosion_start(target_fd, TARGET_SERVER, TARGET_BROADCAST, &(msg_explosion_start_t){
             .cell_index = cell_index,
             .radius = a->bombs[i].radius
-        }) < 0) {
-            perror("Failed to send explosion start message");
-        }
+        }));
         return;
     }
     printf("Bomb at (%d, %d) exploded!\n", a->bombs[i].row, a->bombs[i].col);
@@ -496,16 +534,20 @@ static void bomb_array_explode(BombArray *a, size_t i)
         }
     }
 
-    bombs_active_for_player[a->bombs[i].owner_id]--;
+    bombs_active_for_player[a->bombs[i].owner_id - 1]--;
     a->bombs[i] = a->bombs[a->size - 1];
     a->size--;
     
-    if (send_explosion_end(CLIENT_FD, TARGET_SERVER, TARGET_BROADCAST, &(msg_explosion_end_t){
+    // if (send_explosion_end(CLIENT_FD, TARGET_SERVER, TARGET_BROADCAST, &(msg_explosion_end_t){
+    //     .cell_index = cell_index,
+    //     .radius = a->bombs[i].radius
+    // }) < 0) {
+    //     perror("Failed to send explosion end message");
+    // }
+    BROADCAST_TO_EVERYONE(send_explosion_end(target_fd, TARGET_SERVER, TARGET_BROADCAST, &(msg_explosion_end_t){
         .cell_index = cell_index,
         .radius = a->bombs[i].radius
-    }) < 0) {
-        perror("Failed to send explosion end message");
-    }
+    }));
 }
 
 static void bomb_array_tick(BombArray *a)
@@ -540,7 +582,7 @@ static void handle_bomb_attempt(const msg_generic_t *header, const msg_bomb_atte
             .row = players[header->sender_id - 1].row,
             .col = players[header->sender_id - 1].col,
             .radius = players[header->sender_id - 1].bomb_radius,
-            .timer_ticks = BOMB_DETONATION_TICKS
+            .timer_ticks = players[header->sender_id - 1].bomb_timer_ticks
         });
 
         /* figure out overlay later - doesn't work on low resolution 
@@ -549,9 +591,10 @@ static void handle_bomb_attempt(const msg_generic_t *header, const msg_bomb_atte
     
         printf("Player %d placed a bomb at cell index %d\n", players[header->sender_id - 1].id, bomb_msg->cell_index);
         
-        if (send_bomb(CLIENT_FD, TARGET_SERVER, TARGET_BROADCAST, &(msg_bomb_t){ .player_id = players[header->sender_id - 1].id, .cell_index = bomb_msg->cell_index }) < 0) {
-            perror("Failed to send bomb message");
-        }
+        // if (send_bomb(CLIENT_FD, TARGET_SERVER, TARGET_BROADCAST, &(msg_bomb_t){ .player_id = players[header->sender_id - 1].id, .cell_index = bomb_msg->cell_index }) < 0) {
+        //     perror("Failed to send bomb message");
+        // }
+        BROADCAST_TO_EVERYONE(send_bomb(target_fd, TARGET_SERVER, TARGET_BROADCAST, &(msg_bomb_t){ .player_id = players[header->sender_id - 1].id, .cell_index = bomb_msg->cell_index }));
     } else {
         printf("Invalid bomb placement by player %d (header id: %d) at cell index %d\n", players[header->sender_id - 1].id, header->sender_id, bomb_msg->cell_index);
     }
@@ -563,14 +606,16 @@ int is_bonus_cell(char cell) {
 
 static void apply_bonus(uint8_t player_id, char bonus_type, uint16_t new_pos) {
     switch (bonus_type) {
-        case 'A': players[player_id].speed += 1;              break;
-        case 'T': players[player_id].bomb_timer_ticks += 10;  break;
-        case 'R': players[player_id].bomb_radius += 1;        break;
-        case 'N': players[player_id].bomb_count += 1;         break;	
+        case 'A': players[player_id - 1].speed += 1;              break;
+        case 'T': players[player_id - 1].bomb_timer_ticks += 10;  break;
+        case 'R': players[player_id - 1].bomb_radius += 1;        break;
+        case 'N': players[player_id - 1].bomb_count += 1;         break;	
     }
-    if (send_bonus_retrieved(CLIENT_FD, TARGET_SERVER, TARGET_BROADCAST, &(msg_bonus_retrieved_t){ .player_id = player_id, .cell_index = new_pos }) < 0) {
-        perror("Failed to send bonus retrieved message");
-    }
+    // if (send_bonus_retrieved(CLIENT_FD, TARGET_SERVER, TARGET_BROADCAST, &(msg_bonus_retrieved_t){ .player_id = player_id, .cell_index = new_pos }) < 0) {
+    //     perror("Failed to send bonus retrieved message");
+    // }
+    BROADCAST_TO_EVERYONE(send_bonus_retrieved(target_fd, TARGET_SERVER, TARGET_BROADCAST, &(msg_bonus_retrieved_t){ .player_id = player_id, .cell_index = new_pos }));
+
 
 }
 
