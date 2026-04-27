@@ -19,15 +19,12 @@ int CLIENT_FD; // TODO: remove after cleaning up server->client message handling
 
 uint8_t is_player_on_bomb[8];
 uint8_t bombs_active_for_player[8]; /* > 0 means player has bombs on the map */
-uint16_t BOMB_DETONATION_TICKS = 40; /* 1 second, should be set on map init later */
+uint16_t BOMB_DETONATION_TICKS = 20; /* 1 second, set on map init later again */
 uint8_t player_move_cooldown[8]; /* ticks until player can move again, based on their speed */
-uint8_t player_dead[8]; /* 0 = alive, 1 = dead */
-
 
 void init_players(void) { // maybe put with the other functions
     for (int i = 0; i < MAX_PLAYERS; i++) {
         player_move_cooldown[i] = 0;
-        player_dead[i] = 0;
     }
 }
 
@@ -38,38 +35,20 @@ typedef struct {
 static int bomb_array_push(BombArray *a, bomb_t bomb);
 static void bomb_array_explode(BombArray *a, size_t i);
 static void bomb_array_tick(BombArray *a);
-static void decrement_move_cooldown(void);
-static inline int is_on_laser(char c);
-static void kill_player(uint8_t player_id);
-
 BombArray ACTIVE_BOMBS = { .size = 0 };
 
-/* later create a pool of players and find by sender id or by binding sockets to ids */
-// player_t test_player = {
-//     .id = 1,
-//     .name = "Test Player",
-//     .row = 0,
-//     .col = 1,
-//     .lives = 1,
-//     .ready = true,
-//     .bomb_count = 2,
-//     .bomb_radius = 1,
-//     .bomb_timer_ticks = 20, /* 1 second */
-//     .speed = 3
-// };
-
 int client_sockets[MAX_PLAYERS] = {0};
-bool game_started = false;
 player_t players[MAX_PLAYERS];
 uint8_t player_count = 0;
 
-
+static void decrement_move_cooldown(void);
 static void handle_client_messages(int fd);
+static void init_map_from_file(const char *filename);
 
 int main() {  
     int server_fd;  
+    bool game_started = false;
     struct sockaddr_in server_addr, client_addr;  
-
 
     server_fd = socket(AF_INET, SOCK_STREAM, 0);  
     if (server_fd == -1) {  
@@ -86,21 +65,23 @@ int main() {
     }  
 
     listen(server_fd, MAX_PLAYERS);  
-    printf("Server listening on port 6969\n");  
+    printf("Server listening on port %d\n", SERVER_PORT);  
 
 
     while (1) {  
+        /* Note well: Upon return, each of the file descriptor sets is
+            modified in place to indicate which file descriptors are currently
+            "ready".  Thus, if using select() within a loop, the sets must be
+            reinitialized before each call. - linux-man-pages */
         fd_set read_fds;
         FD_ZERO(&read_fds);
-        
-        // Add server socket if game hasn't started (Lobby Phase)
+         /* only reinitialize server during the lobby phase 
+            for accepting new connections to the server. */
         int max_fd = 0;
         if (!game_started) {
             FD_SET(server_fd, &read_fds);
             max_fd = server_fd;
         }
-
-        // Add all active clients
         for (int i = 0; i < MAX_PLAYERS; i++) {
             if (client_sockets[i] > 0) {
                 FD_SET(client_sockets[i], &read_fds);
@@ -109,21 +90,23 @@ int main() {
                 }
             }
         }
-
-        // Use select as your tick timer!
-        struct timeval tv;
-        tv.tv_sec = 0;
-        tv.tv_usec = 1000000 / 50000; // e.g., 50000 for 20 TPS
-
-        int activity = select(max_fd + 1, &read_fds, NULL, NULL, &tv);
-
-        if (activity < 0 && errno != EINTR) {
-            perror("Error");
+        struct timeval tv = { 0, 0 }; /* select active fds to act upon */
+        if (select(max_fd + 1, &read_fds, NULL, NULL, &tv) < 0) {
+            perror("select failed");
+            return EXIT_FAILURE;
         }
+
         /* --- 1. HANDLE NEW CONNECTIONS (LOBBY) --- */
         if (!game_started && FD_ISSET(server_fd, &read_fds)) {
             socklen_t addr_len = sizeof(client_addr);
             int new_fd = accept(server_fd, (struct sockaddr*)&client_addr, &addr_len);
+
+            /* TODO: before accepting the server should receive the HELLO message
+                and evaluate if it has enough space, if not send DISCONNECT.
+
+                all of this should be put into a handle_new_connection() function
+                
+                but currently just accepts the connection here with no checks */
             
             if (new_fd >= 0) {
                 bool slot_found = false;
@@ -132,32 +115,24 @@ int main() {
                     if (client_sockets[i] == 0) {
                         client_sockets[i] = new_fd;
                         
-                        // IDs start from 1 (Slot 0 -> ID 1, Slot 1 -> ID 2, etc.)
                         players[i].id = (uint8_t)(i + 1);
-                        
+                        players[i].ready = false;
+                        /* i think the player name comes from a hello message or similar */
                         snprintf(players[i].name, sizeof(players[i].name), "Test Player %d", players[i].id);
-                        
-                        // Initialize Stats
+                        /* these fields get overwritten by the map info if specified */ 
                         players[i].lives            = 1;
                         players[i].speed            = 3;
-                        players[i].ready            = false; // Starts ready for your testing
                         players[i].bomb_count       = 2;
                         players[i].bomb_radius      = 1;
                         players[i].bomb_timer_ticks = 20;
-                        
-                        // Test coordinates
-                        players[i].row = (uint8_t)(i + 1);
-                        players[i].col = (uint8_t)(i + 1);
 
-                        // 2. Craft the SIMPLE welcome package
+                        /* TODO, make a proper welcome message */
                         msg_welcome_t welcome_pkg;
                         memset(&welcome_pkg, 0, sizeof(welcome_pkg));
                         strncpy(welcome_pkg.server_id, "TEST_SRV", SERVER_ID_LEN);
-                        welcome_pkg.game_status = 0; // Lobby
-                        welcome_pkg.length = 0;      // <--- IMPORTANT: Tells client "no players follow"
-
-                        // 3. Send it using your specific function signature
-                        // 255 is the standard ID for "Server"
+                        welcome_pkg.game_status = 0; /* lobby status */
+                        welcome_pkg.length = 0;
+                        
                         send_welcome_message(new_fd, 255, players[i].id, &welcome_pkg);
 
                         printf("Joined: %s (ID: %d) on FD %d\n", players[i].name, players[i].id, new_fd);
@@ -175,97 +150,49 @@ int main() {
             }
         }
 
-
         /* --- 2. HANDLE INCOMING MESSAGES --- */
         for (int i = 0; i < MAX_PLAYERS; i++) {
             if (client_sockets[i] > 0 && FD_ISSET(client_sockets[i], &read_fds)) {
-                // Pass 'i' so we know which player sent the message
                 handle_client_messages(client_sockets[i]);
-                
-                // (Optional: if handle_client_messages closed the socket, set client_sockets[i] = 0)
             }
         }
 
         /* --- 3. LOBBY LOGIC: START GAME? --- */
         if (!game_started && player_count > 0) {
             bool everyone_ready = true;
-            for (int i = 0; i < 2; i++) { // Only require 2 players to start for testing, change to player_count for real game
-                // If there's a connected player who ISN'T ready
+            for (int i = 0; i < 8; i++) {
                 if (client_sockets[i] > 0 && !players[i].ready) {
                     everyone_ready = false;
                     break;
                 }
             }
-
+            /* currently allow single player, otherwise check for player_count > 1 */
             if (everyone_ready) {
                 printf("All players ready! Starting game...\n");
 
-                /* --- MAP LOADING --- */
-                FILE *fp = fopen("maps/test_map_1.txt", "r");
-                if (!fp) {
-                    perror("Could not open map file");
-                    return 1;
-                }
-
-                uint8_t h, w, c;
-                // 1. Read dimensions
-                if (fscanf(fp, "%hhu %hhu", &h, &w) != 2) {
-                    fprintf(stderr, "Error reading map dimensions\n");
-                    fclose(fp);
-                    return 1;
-                }
-
-                // 2. Skip the 4 test characters
-                for (int i = 0; i < 4; i++) {
-                    // The leading space in " %c" skips newlines/spaces before the char
-                    if (fscanf(fp, " %c", &c) != 1) {
-                        break; 
-                    }
-                }
-
-                // 3. Allocate: Struct header + cell data
-                // Using sizeof(*GAME_MAP) is a clean way to get the size of the struct
-                GAME_MAP = malloc(sizeof(msg_map_t) + (h * w));
-                if (!GAME_MAP) {
-                    fclose(fp);
-                    return 1;
-                }
-
-                GAME_MAP->height = h;
-                GAME_MAP->width = w;
-
-                // 4. Read the actual map cells
-                for (int i = 0; i < (h * w); i++) {
-                    if (fscanf(fp, " %c", &GAME_MAP->cells[i]) != 1) {
-                        break;
-                    }
-                }
-
-                fclose(fp);
-                printf("Map loaded: %dx%d (skipped 4 test chars)\n", h, w);
+                /* later allow the first player to specify the map */
+                init_map_from_file("maps/test_map_1.txt");
 
                 game_started = true;
-                init_players(); // Set map positions
+                /* set map positions for players here perhaps? */
+                init_players(); 
                 
-                // Broadcast map to everyone
                 for (int i = 0; i < MAX_PLAYERS; i++) {
                     if (client_sockets[i] > 0) {
-                        send_map_message(client_sockets[i], TARGET_SERVER, TARGET_BROADCAST, GAME_MAP);
+                        send_map_message(client_sockets[i], 
+                            TARGET_SERVER, TARGET_BROADCAST, GAME_MAP);
                     }
                 }
             }
         }
 
         /* --- 4. GAME TICKS --- */
-        // Note: select() will reduce 'tv' by the time spent waiting.
-        // If it timed out (activity == 0), a full tick duration has passed.
         if (game_started) {
             decrement_move_cooldown();
             bomb_array_tick(&ACTIVE_BOMBS);
-            
-            // You might want to broadcast a MSG_SYNC_BOARD or MSG_MOVED here 
-            // if the state changed during this tick.
         }
+
+        usleep(1000000 / TICKS_PER_SECOND); /* 1e6 for microsecond to second */
     }
 
     return 0;  
@@ -273,6 +200,78 @@ int main() {
 
 
 /* -------------------------- function declarations --------------------------- */
+
+static void init_map_from_file(const char *filename) {
+    FILE *fp = fopen(filename, "r");
+    if (!fp) {
+        perror("Could not open map file");
+        exit(EXIT_FAILURE);
+    }
+    uint8_t h, w;
+    if (fscanf(fp, "%hhu %hhu", &h, &w) != 2) {
+        fprintf(stderr, "Error reading map dimensions\n");
+        fclose(fp);
+        exit(EXIT_FAILURE);
+    }
+
+    uint8_t player_speed = 0, bomb_radius = 0, bomb_timer_ticks = 0;
+    fscanf(fp, "%hhu %hhu %hhu %hu", 
+        &player_speed, &bomb_timer_ticks, 
+        &bomb_radius, &BOMB_DETONATION_TICKS);
+    printf("Map config - Player Speed: %d, Bomb Timer Ticks: %d, Bomb Radius: %d, Bomb Detonation Ticks: %d\n", 
+        player_speed, bomb_timer_ticks, bomb_radius, BOMB_DETONATION_TICKS);
+
+    GAME_MAP = malloc(sizeof(msg_map_t) + (h * w));
+    if (!GAME_MAP) {
+        fclose(fp);
+        exit(EXIT_FAILURE);
+    }
+    GAME_MAP->height = h;
+    GAME_MAP->width = w;
+    for (int i = 0; i < (h * w); i++) {
+        if (fscanf(fp, " %c", &GAME_MAP->cells[i]) != 1) {
+            break;
+        }
+    }
+
+    fclose(fp);
+    printf("Map loaded: %dx%d\n", h, w);
+
+    /* update player speed, timer ticks, radius and positions */
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        if (client_sockets[i] > 0) {
+            players[i].speed = player_speed;
+            players[i].bomb_radius = bomb_radius;
+            players[i].bomb_timer_ticks = bomb_timer_ticks;
+            /* find positions by id on the map */
+            for (int j = 0; j < h * w; j++) {
+                if (GAME_MAP->cells[j] == ('0' + players[i].id)) {
+                    players[i].row = j / w;
+                    players[i].col = j % w;
+                    break;
+                }
+            }
+        }
+    }
+
+    printf("Player starting positions set based on map data.\n");
+}
+
+static inline int is_on_laser(char c) {
+    return c == '-' || c == '|' || c == '^' || c == 'v' || c == '<' || c == '>';
+}
+
+static void kill_player(uint8_t player_id) {
+    players[player_id].lives = 0;
+
+    if (players[player_id].lives == 0) {
+        printf("Player %d has been killed by a laser!\n", player_id);
+        /* send player death message to clients */
+        if (send_player_death(CLIENT_FD, TARGET_SERVER, TARGET_BROADCAST, &(msg_death_t){ .player_id = player_id }) < 0) {
+            perror("Failed to send player death message");
+        }
+    }
+}
 
 static int bomb_array_push(BombArray *a, bomb_t bomb)
 {
@@ -333,7 +332,6 @@ static void bomb_array_explode(BombArray *a, size_t i)
                     uint8_t hit_id = GAME_MAP->cells[idx] - '0';
                     kill_player(hit_id);
                     GAME_MAP->cells[idx] = tip ? '^' : '|';
-                    blocked_up = 1;
                 }
                 else GAME_MAP->cells[idx] = tip ? '^' : '|';
             }
@@ -360,7 +358,6 @@ static void bomb_array_explode(BombArray *a, size_t i)
                     uint8_t hit_id = GAME_MAP->cells[idx] - '0';
                     kill_player(hit_id);
                     GAME_MAP->cells[idx] = tip ? 'v' : '|';
-                    blocked_down = 1;
                 }
                 else GAME_MAP->cells[idx] = tip ? 'v' : '|';
             }
@@ -387,7 +384,6 @@ static void bomb_array_explode(BombArray *a, size_t i)
                     uint8_t hit_id = GAME_MAP->cells[idx] - '0';
                     kill_player(hit_id);
                     GAME_MAP->cells[idx] = tip ? '<' : '|';
-                    blocked_left = 1;
                 }
                 else GAME_MAP->cells[idx] = tip ? '<' : '-';
             }
@@ -414,7 +410,6 @@ static void bomb_array_explode(BombArray *a, size_t i)
                     uint8_t hit_id = GAME_MAP->cells[idx] - '0';
                     kill_player(hit_id);
                     GAME_MAP->cells[idx] = tip ? '>' : '|';
-                    blocked_right = 1;
                 }
                 else GAME_MAP->cells[idx] = tip ? '>' : '-';
             }
@@ -439,9 +434,6 @@ static void bomb_array_explode(BombArray *a, size_t i)
     
     GAME_MAP->cells[ci] = '.';
 
-    /* TODO: 
-        check for explosion chains (hit B tile)
-        check for players (hit 1-8 tile) create function for damaging */
     for (int r = 1; r <= a->bombs[i].radius; r++) {
         /* UP */
         if (!blocked_up) {
@@ -661,22 +653,6 @@ static void decrement_move_cooldown() {
     for (int i = 0; i < MAX_PLAYERS; i++) {
         if (player_move_cooldown[i] > 0) {
             player_move_cooldown[i]--;
-        }
-    }
-}
-
-static inline int is_on_laser(char c) {
-    return c == '-' || c == '|' || c == '^' || c == 'v' || c == '<' || c == '>';
-}
-
-static void kill_player(uint8_t player_id) {
-    players[player_id].lives = 0;
-
-    if (players[player_id].lives == 0) {
-        printf("Player %d has been killed by a laser!\n", player_id);
-        /* send player death message to clients */
-        if (send_player_death(CLIENT_FD, TARGET_SERVER, TARGET_BROADCAST, &(msg_death_t){ .player_id = player_id }) < 0) {
-            perror("Failed to send player death message");
         }
     }
 }
