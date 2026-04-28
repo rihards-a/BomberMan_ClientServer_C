@@ -33,7 +33,7 @@ enum {
 
     /* max 8 player names 1 for a line + 6 for control info + 4 for spacing */
     SIDE_BAR_HEIGHT =
-        8
+        14
         + 1
         + 8
         + 2
@@ -108,7 +108,7 @@ player_t SELF_PLAYER = {
     .speed = 3
 };
 
-int player_bonus_count[8] = {0}; // track how many bonuses each player has retrieved for display purposes
+int player_bonus_count[8] = {0};
 
 static void handle_user_input(int ch);
 static void draw_game_board();
@@ -164,18 +164,6 @@ int main() {
 
     /* init other player storage */
     OTHER_PLAYERS = (player_t*)malloc(7*sizeof(player_t));
-    // OTHER_PLAYERS[0] = (player_t){
-    //     .id = 1,
-    //     .name = "Other Test Player",
-    //     .row = 1,
-    //     .col = 1,
-    //     .lives = 1,
-    //     .ready = true,
-    //     .bomb_count = 2,
-    //     .bomb_radius = 1,
-    //     .bomb_timer_ticks = 20,
-    //     .speed = 4
-    // };
 
 
     initscr();
@@ -436,11 +424,9 @@ static void handle_map_message(const msg_generic_t *header, const msg_map_t *map
                 SELF_PLAYER.col = i % GAME_MAP.width;
             } else {
                 for (int j = 0; j < 7; j++) {
-                    // game_log("Checking OTHER_PLAYERS[%d] with id %d against player_id %d", j, OTHER_PLAYERS[j].id, player_id);
                     if (OTHER_PLAYERS[j].id == player_id) {
                         OTHER_PLAYERS[j].row = i / GAME_MAP.width;
                         OTHER_PLAYERS[j].col = i % GAME_MAP.width;
-                        // game_log("Setting player %d position to (%d, %d)", OTHER_PLAYERS[j].id, OTHER_PLAYERS[j].row, OTHER_PLAYERS[j].col);
                         break;
                     }
                 }
@@ -471,7 +457,6 @@ static void handle_welcome(const msg_generic_t *header, const msg_welcome_t *wel
 
     // SELF_PLAYER.id = header->target_id;
     if (SELF_PLAYER.id == 0) {
-        // game_log("Setting SELF_PLAYER.id to %d based on welcome message target_id %d", header->target_id, header->target_id);
         SELF_PLAYER.id = header->target_id;
     }
 
@@ -486,7 +471,6 @@ static void handle_welcome(const msg_generic_t *header, const msg_welcome_t *wel
         for (int j = 0; j < 7; j++) {
             if (OTHER_PLAYERS[j].id == client_info.id || OTHER_PLAYERS[j].id == 0) {
                 OTHER_PLAYERS[j].id = client_info.id;
-                // game_log("Updating OTHER_PLAYERS[%d] with id %d", j, OTHER_PLAYERS[j].id);
                 strncpy(OTHER_PLAYERS[j].name, client_info.player_name, MAX_NAME_LEN);
                 OTHER_PLAYERS[j].name[MAX_NAME_LEN] = '\0';
                 OTHER_PLAYERS[j].ready = client_info.ready;
@@ -998,23 +982,24 @@ static void draw_game_board() {
 
     current_row++; 
 
+
+    
+    int footer_start = SIDE_BAR_HEIGHT - 8;
+
     // Other players
     for (int i = 0; i < MAX_PLAYERS - 1; i++) {
-        if (current_row >= SIDE_BAR_HEIGHT - 6) break;
+        // Check for 2 lines of space instead of 1
+        if (current_row >= footer_start - 2) break; 
 
         player_t p = OTHER_PLAYERS[i];
-        // game_log("Rendering OTHER_PLAYERS[%d]: id=%d, name=%s, lives=%d, ready=%d", i, p.id, p.name, p.lives, p.ready);
         if (p.lives > 0) {
-            /* Calculate available space for the name:
-            Total width - (Border left/right: 2) - (ID: ~3) - (Bonus text " B:100": ~6) 
-            */
-            int max_name_display_len = SIDE_BAR_WIDTH - 11; 
-            if (max_name_display_len < 0) max_name_display_len = 0;
-
-            mvwprintw(SIDEBAR_WIN, current_row++, 1, "#%d %.*s B:%d", 
-                    p.id, 
-                    max_name_display_len, p.name, 
-                    player_bonus_count[p.id-1]);
+            snprintf(line, SIDE_BAR_WIDTH - 2, " %-2d %-.*s", 
+                     p.id, MAX_NAME_LEN, p.name);
+            mvwaddstr(SIDEBAR_WIN, current_row++, 1, line);
+            snprintf(line, SIDE_BAR_WIDTH - 2, "Bonuses: %d", 
+                     player_bonus_count[p.id-1]);
+            mvwaddstr(SIDEBAR_WIN, current_row++, 1, line);
+            
         } else {
             wattron(SIDEBAR_WIN, A_DIM);
             mvwaddstr(SIDEBAR_WIN, current_row++, 1, " -- Empty --");
@@ -1022,8 +1007,6 @@ static void draw_game_board() {
         }
     }
 
-    // Standardize the starting height for both states
-    int footer_start = SIDE_BAR_HEIGHT - 8;
 
     // Clear the footer area first to prevent text overlap
     for (int i = footer_start; i < SIDE_BAR_HEIGHT - 1; i++) {
@@ -1034,7 +1017,7 @@ static void draw_game_board() {
     mvwhline(SIDEBAR_WIN, footer_start++, 1, ACS_HLINE, SIDE_BAR_WIDTH - 2);
 
     if (game_status != GAME_END) {
-        // --- DRAW CONTROLS ---
+        // draw controls
         wattron(SIDEBAR_WIN, A_BOLD);
         mvwaddstr(SIDEBAR_WIN, footer_start++, 2, "CONTROLS:");
         wattroff(SIDEBAR_WIN, A_BOLD);
@@ -1045,8 +1028,8 @@ static void draw_game_board() {
         mvwaddstr(SIDEBAR_WIN, footer_start++, 2, "SPACE        - Place Bomb");
         mvwaddstr(SIDEBAR_WIN, footer_start++, 2, "[1|2|3]      - Choose Map");
     } else {
-        // --- DRAW WINNER ---
-        char game_winner_message[MAX_NAME_LEN + 12]; // Increased buffer slightly for safety
+        // draw winner
+        char game_winner_message[MAX_NAME_LEN + 12];
         
         if (game_winner_id != 0) {
             if (game_winner_id == SELF_PLAYER.id) {
@@ -1064,7 +1047,6 @@ static void draw_game_board() {
         wattron(SIDEBAR_WIN, A_BOLD);
         if (game_winner_id != 0) {
             mvwaddstr(SIDEBAR_WIN, footer_start++, 2, "WINNER:");
-            // Indent the winner name slightly for visual hierarchy
             mvwaddstr(SIDEBAR_WIN, footer_start++, 4, game_winner_message);
         } else {
             mvwaddstr(SIDEBAR_WIN, footer_start++, 2, "GAME OVER");

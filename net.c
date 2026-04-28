@@ -503,7 +503,7 @@ static int recv_fixed_message(int fd, uint8_t msg_type, void **payload, size_t *
         if (recv_exact(fd, &prefix, sizeof(prefix)) != 0)
             return -1;
 
-        size_t clients_len = (size_t)prefix.length; // * sizeof(welcome_client_t); length is already in bytes
+        size_t clients_len = (size_t)prefix.length;
         size_t total_len   = sizeof(msg_welcome_t) + clients_len;
 
         msg_welcome_t *msg = malloc(total_len);

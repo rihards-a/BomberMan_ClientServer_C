@@ -29,7 +29,7 @@ do {                                                          \
 
 char MAP_FILE_PATH[256] = "maps/test_map_1.txt"; /* default map, can be set by first player in lobby later */
 msg_map_t *GAME_MAP;
-int CLIENT_FD; // TODO: remove after cleaning up server->client message handling
+
 
 uint8_t is_player_on_bomb[8];
 uint8_t bombs_active_for_player[8]; /* > 0 means player has bombs on the map */
@@ -141,7 +141,7 @@ int main() {
             }
         }
 
-        /* --- 3. LOBBY LOGIC: START GAME? --- */
+        /* --- 3. LOBBY LOGIC --- */
         if (game_status == GAME_LOBBY && player_count > 0) {
             bool everyone_ready = true;
             for (int i = 0; i < 8; i++) {
@@ -177,7 +177,6 @@ int main() {
         usleep(1000000 / TICKS_PER_SECOND); /* 1e6 for microsecond to second */
     }
 
-    // TODO: server cleanup, though currently unreachable due to infinite loop and no disconnect handling
     printf("Closing client sockets...\n");
     for (int i = 0; i < MAX_PLAYERS; i++) {
         if (client_sockets[i] > 0) {
@@ -363,7 +362,6 @@ static void kill_player(uint8_t player_id) {
 
     if (players[player_id - 1].lives == 0) {
         printf("Player %d has been killed by a laser!\n", player_id);
-        /* send player death message to clients */
         BROADCAST_TO_EVERYONE(send_player_death(target_fd, TARGET_SERVER, TARGET_BROADCAST, &(msg_death_t){ .player_id = player_id }));
     }
 }
@@ -381,9 +379,7 @@ static void bomb_array_explode(BombArray *a, size_t i)
     uint16_t cell_index = make_cell_index(a->bombs[i].row, a->bombs[i].col, GAME_MAP->width);
     if (!a->bombs[i].active) {
         a->bombs[i].active = true;
-        /* find the player by owner_id, but for now we have constant tester 
-            uint8_t owner_id = a->bombs[i].owner_id;
-            +1 added because the while loop that ticks these bombs decrements 1 on check */
+        /* +1 added because the while loop that ticks these bombs decrements 1 on check */
         a->bombs[i].timer_ticks = players[a->bombs[i].owner_id - 1].bomb_timer_ticks + 1; 
 
         GAME_MAP->cells[cell_index] = '@';
@@ -581,12 +577,6 @@ static void bomb_array_explode(BombArray *a, size_t i)
     a->bombs[i] = a->bombs[a->size - 1];
     a->size--;
     
-    // if (send_explosion_end(CLIENT_FD, TARGET_SERVER, TARGET_BROADCAST, &(msg_explosion_end_t){
-    //     .cell_index = cell_index,
-    //     .radius = a->bombs[i].radius
-    // }) < 0) {
-    //     perror("Failed to send explosion end message");
-    // }
     u_int8_t cur_radius = a->bombs[i].radius;
     BROADCAST_TO_EVERYONE(send_explosion_end(target_fd, TARGET_SERVER, TARGET_BROADCAST, &(msg_explosion_end_t){
         .cell_index = cell_index,
@@ -635,9 +625,6 @@ static void handle_bomb_attempt(const msg_generic_t *header, const msg_bomb_atte
     
         printf("Player %d placed a bomb at cell index %d\n", players[header->sender_id - 1].id, bomb_msg->cell_index);
         
-        // if (send_bomb(CLIENT_FD, TARGET_SERVER, TARGET_BROADCAST, &(msg_bomb_t){ .player_id = players[header->sender_id - 1].id, .cell_index = bomb_msg->cell_index }) < 0) {
-        //     perror("Failed to send bomb message");
-        // }
         BROADCAST_TO_EVERYONE(send_bomb(target_fd, TARGET_SERVER, TARGET_BROADCAST, &(msg_bomb_t){ .player_id = players[header->sender_id - 1].id, .cell_index = bomb_msg->cell_index }));
     } else {
         printf("Invalid bomb placement by player %d (header id: %d) at cell index %d\n", players[header->sender_id - 1].id, header->sender_id, bomb_msg->cell_index);
@@ -655,9 +642,6 @@ static void apply_bonus(uint8_t player_id, char bonus_type, uint16_t new_pos) {
         case 'R': players[player_id - 1].bomb_radius += 1;        break;
         case 'N': players[player_id - 1].bomb_count += 1;         break;	
     }
-    // if (send_bonus_retrieved(CLIENT_FD, TARGET_SERVER, TARGET_BROADCAST, &(msg_bonus_retrieved_t){ .player_id = player_id, .cell_index = new_pos }) < 0) {
-    //     perror("Failed to send bonus retrieved message");
-    // }
     BROADCAST_TO_EVERYONE(send_bonus_retrieved(target_fd, TARGET_SERVER, TARGET_BROADCAST, &(msg_bonus_retrieved_t){ .player_id = player_id, .cell_index = new_pos }));
 
 
@@ -818,7 +802,7 @@ static void finish_game() {
     TICK_COUNT = 0;
 
     // keep winner on screen for 10 seconds before resetting lobby
-    sleep(3); // TODO: change to 10 seconds in final version
+    sleep(10);
 }
 
 static void reset_to_lobby() {
