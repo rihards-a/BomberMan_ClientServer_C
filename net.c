@@ -29,7 +29,7 @@ int send_##name(int fd,                                                    \
         sender_id,                                                         \
         target_id,                                                         \
         sizeof(*payload),                                                  \
-        payload                                                            \
+        &payload_be                                                        \
     );                                                                     \
 }
 
@@ -497,7 +497,7 @@ static int recv_fixed_message(int fd, uint8_t msg_type, void **payload, size_t *
     }
 
     case MSG_ERROR: {
-        uint8_t len;
+        uint16_t len;
         if (recv_exact(fd, &len, sizeof(len)) != 0)
             return -1;
 
