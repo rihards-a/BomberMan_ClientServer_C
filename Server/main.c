@@ -146,12 +146,12 @@ int main() {
                     break;
                 }
             }
-            /* currently allow single player, otherwise check for player_count > 1 */
-            if (everyone_ready) {
+            /* currently disallow single player */
+            if (everyone_ready && player_count >= 1) {
                 printf("All players ready! Starting game...\n");
                 init_map_from_file(MAP_FILE_PATH);
                 
-                BROADCAST_TO_EVERYONE(send_set_status(target_fd, TARGET_SERVER, TARGET_BROADCAST, &(msg_set_status_t){ .game_status = 1 }));
+                BROADCAST_TO_EVERYONE(send_set_status(target_fd, TARGET_SERVER, TARGET_BROADCAST, &(msg_set_status_t){ .game_status = GAME_RUNNING }));
                 game_status = GAME_RUNNING;
 
                 BROADCAST_TO_EVERYONE(send_map_message(target_fd, TARGET_SERVER, TARGET_BROADCAST, GAME_MAP));
@@ -740,16 +740,23 @@ static void handle_disconnect(int fd) {
     /* find the player index and clear their info */
     for (int i = 0; i < MAX_PLAYERS; i++) {
         if (client_sockets[i] == fd) {
-            client_sockets[i] = 0;
-            printf("Player %d (%s) has disconnected.\n", players[i].id, players[i].name);
             printf("fd %d removed from client_sockets\n", fd);
-            BROADCAST_TO_EVERYONE(send_player_death(target_fd, TARGET_SERVER, TARGET_BROADCAST, &(msg_death_t){ .player_id = players[i].id }));
-            players[i].id = 0;
+            client_sockets[i] = 0;
+            if (game_status == GAME_RUNNING) {
+                printf("Player %d (%s) has disconnected.\n", players[i].id, players[i].name);
+                BROADCAST_TO_EVERYONE(send_player_death(target_fd, TARGET_SERVER, TARGET_BROADCAST, &(msg_death_t){ .player_id = players[i].id }));
+                uint16_t gi = make_cell_index(players[i].row, players[i].col, GAME_MAP->width);
+                GAME_MAP->cells[gi] = '.'; /* clear player from map */
+            }
+            if (game_status == GAME_LOBBY) {
+                printf("Player %d (%s) has disconnected from lobby.\n", players[i].id, players[i].name);
+                /* broadcast the welcome message so players update their active player counts */
+                BROADCAST_TO_EVERYONE(send_welcome_message(target_fd, TARGET_SERVER, TARGET_BROADCAST, &(msg_welcome_t){ .game_status = GAME_LOBBY }));
+            }
             memset(players[i].name, 0, PLAYER_NAME_LEN);
+            players[i].id = 0;
             players[i].ready = false;
             players[i].lives = 0;
-            uint16_t gi = make_cell_index(players[i].row, players[i].col, GAME_MAP->width);
-            GAME_MAP->cells[gi] = '.'; /* clear player from map */
             players[i].row = -1;
             players[i].col = -1;
             player_count--;
@@ -845,21 +852,36 @@ static void dispatch(int fd, const msg_generic_t *header, const void *payload) {
             break;
         }
         case MSG_SET_READY: {
+            if (game_status != GAME_LOBBY) {
+                printf("Received SET_READY from client %d, but game is not in lobby!\n", header->sender_id);
+                break;
+            }
             printf("Received SET_READY from client %d!\n", header->sender_id);
             players[header->sender_id - 1].ready = true;
             break;
         }
         case MSG_MOVE_ATTEMPT: {
+            if (game_status != GAME_RUNNING) {
+                printf("Received MOVE_ATTEMPT from client %d, but game is not running!\n", header->sender_id);
+                break;
+            }
             handle_move_attempt(header, (const msg_move_attempt_t *)payload);
             break;
         }
         case MSG_BOMB_ATTEMPT: {
+            if (game_status != GAME_RUNNING) {
+                printf("Received MSG_BOMB_ATTEMPT from client %d, but game is not running!\n", header->sender_id);
+                break;
+            }
             handle_bomb_attempt(header, (const msg_bomb_attempt_t *)payload);
             break;
         }
         case MSG_CHOOSE_MAP: {
-            /* verify this is coming from the first player 
-                - the player with the lowest ID */
+            if (game_status != GAME_LOBBY) {
+                printf("Received MSG_CHOOSE_MAP from client %d, but game is not in lobby!\n", header->sender_id);
+                break;
+            }
+            /* verify this is coming from the player with the lowest ID */
             uint8_t lowest_id = 255;
             for (int i = 0; i < MAX_PLAYERS; i++) {
                 if (client_sockets[i] > 0 && players[i].id < lowest_id) {
