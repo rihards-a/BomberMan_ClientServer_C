@@ -5,13 +5,15 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <arpa/inet.h>
+
 #include "net.h"
 #include "msg_protocol.h"
 #include "config.h"
 
 #define RECV_FIXED_CASE(MSG_ID, TYPE) \
     case MSG_ID: \
-        return recv_fixed_message(fd, payload, payload_len, sizeof(TYPE))
+        return recv_fixed_message(fd, MSG_ID, payload, payload_len, sizeof(TYPE))
 
 #define DEFINE_SEND_FN(name, msg_const, type)                              \
 int send_##name(int fd,                                                    \
@@ -19,6 +21,8 @@ int send_##name(int fd,                                                    \
                 uint8_t target_id,                                         \
                 const type *payload)                                       \
 {                                                                          \
+    type payload_be = *payload;                                            \
+    convert_to_be(msg_const, &payload_be);                                 \
     return send_protocol_message(                                          \
         fd,                                                                \
         msg_const,                                                         \
@@ -83,9 +87,12 @@ int send_protocol_message(int fd,
                         uint8_t msg_type,
                         uint8_t sender_id,
                         uint8_t target_id,
-                        size_t payload_len,
+                        uint16_t payload_len,
                         const void *payload)
 {
+    /* these do not need endian conversion since 
+        computers work in bytes and we only have uint8_t fields.
+        The payload_len field does not get sent over. */
     msg_generic_t header = {
         .msg_type = msg_type,
         .sender_id = sender_id,
@@ -111,6 +118,165 @@ int send_protocol_message(int fd,
 
 
 /* --------------------------------------------------------------------- */
+/*             beginning of converting payload endianness                */
+/* --------------------------------------------------------------------- */
+
+/* convert from big endian (network layer) to 
+    host machine (likely little endian) */
+int convert_from_be(uint8_t msg_type, void *payload) {
+    switch (msg_type) {
+        case MSG_HELLO: {
+            /* no endianness conversion needed for 
+                messages with only char[] fields */
+            break;
+        }
+        case MSG_WELCOME: {
+            /* welcome message has no fields that 
+                require endianness conversion */
+            break;
+        }
+        case MSG_DISCONNECT:
+        case MSG_PING:
+        case MSG_PONG:
+        case MSG_LEAVE: 
+            /* no endianness conversion needed for 
+                messages with no payload */
+            break;
+        case MSG_ERROR: {
+            msg_error_t *error_msg = (msg_error_t *)payload;
+            error_msg->length = ntohs(error_msg->length);
+            break;
+        }
+        case MSG_SET_READY:
+        case MSG_SET_STATUS:
+        case MSG_WINNER:
+        case MSG_MOVE_ATTEMPT:
+        case MSG_BOMB_ATTEMPT: {
+            /* no endianness conversion needed for
+                uint8_t fields or no payload structs */
+            break;
+        }
+        case MSG_MOVED: {
+            msg_moved_t *moved = (msg_moved_t *)payload;
+            moved->cell_index = ntohs(moved->cell_index);
+            break;
+        }
+        case MSG_BOMB: {
+            msg_bomb_t *bomb = (msg_bomb_t *)payload;
+            bomb->cell_index = ntohs(bomb->cell_index);
+            break;
+        }
+        case MSG_EXPLOSION_START: {
+            msg_explosion_start_t *expl_start = (msg_explosion_start_t *)payload;
+            expl_start->cell_index = ntohs(expl_start->cell_index);
+            break;
+        }
+        case MSG_EXPLOSION_END: {
+            msg_explosion_end_t *expl_end = (msg_explosion_end_t *)payload;
+            expl_end->cell_index = ntohs(expl_end->cell_index);
+            break;
+        }
+        case MSG_DEATH: {
+            /* no endianness conversion needed for uint8 fields */
+            break;
+        }
+        case MSG_BONUS_AVAILABLE: {
+            msg_bonus_available_t *bonus_avail = (msg_bonus_available_t *)payload;
+            bonus_avail->cell_index = ntohs(bonus_avail->cell_index);
+            break;
+        }
+        case MSG_BONUS_RETRIEVED: {
+            msg_bonus_retrieved_t *bonus_retrieved = (msg_bonus_retrieved_t *)payload;
+            bonus_retrieved->cell_index = ntohs(bonus_retrieved->cell_index);
+            break;
+        }
+        case MSG_BLOCK_DESTROYED: {
+            msg_block_destroyed_t *block_destroyed = (msg_block_destroyed_t *)payload;
+            block_destroyed->cell_index = ntohs(block_destroyed->cell_index);
+            break;
+        }
+        default:
+            /* for messages with no payload or only uint8_t fields, no conversion needed */
+            break;
+    }
+
+    return 0;
+}
+
+/* convert from host endianness to network endianness (big endian) */
+int convert_to_be(uint8_t msg_type, void *payload) {
+    switch (msg_type) {
+        case MSG_HELLO:
+            /* no endianness conversion needed for messages with only char[] fields */
+            break;
+        case MSG_WELCOME:
+            /* welcome message has no fields that require endianness conversion */
+            break;
+        case MSG_DISCONNECT:
+        case MSG_PING:
+        case MSG_PONG:
+        case MSG_LEAVE:
+            /* no endianness conversion needed for messages with no payload */
+            break;
+        case MSG_ERROR: {
+            msg_error_t *error_msg = (msg_error_t *)payload;
+            error_msg->length = htons(error_msg->length);
+            break;
+        }
+        case MSG_SET_READY:
+        case MSG_SET_STATUS:
+        case MSG_WINNER:
+        case MSG_MOVE_ATTEMPT:
+        case MSG_BOMB_ATTEMPT:
+            /* no endianness conversion needed for uint8_t fields or no-payload structs */
+            break;
+        case MSG_MOVED: {
+            msg_moved_t *moved = (msg_moved_t *)payload;
+            moved->cell_index = htons(moved->cell_index);
+            break;
+        }
+        case MSG_BOMB: {
+            msg_bomb_t *bomb = (msg_bomb_t *)payload;
+            bomb->cell_index = htons(bomb->cell_index);
+            break;
+        }
+        case MSG_EXPLOSION_START: {
+            msg_explosion_start_t *expl_start = (msg_explosion_start_t *)payload;
+            expl_start->cell_index = htons(expl_start->cell_index);
+            break;
+        }
+        case MSG_EXPLOSION_END: {
+            msg_explosion_end_t *expl_end = (msg_explosion_end_t *)payload;
+            expl_end->cell_index = htons(expl_end->cell_index);
+            break;
+        }
+        case MSG_DEATH: {
+            /* no endianness conversion needed for uint8 fields */
+            break;
+        }
+        case MSG_BONUS_AVAILABLE: {
+            msg_bonus_available_t *bonus_avail = (msg_bonus_available_t *)payload;
+            bonus_avail->cell_index = htons(bonus_avail->cell_index);
+            break;
+        }
+        case MSG_BONUS_RETRIEVED: {
+            msg_bonus_retrieved_t *bonus_retrieved = (msg_bonus_retrieved_t *)payload;
+            bonus_retrieved->cell_index = htons(bonus_retrieved->cell_index);
+            break;
+        }
+        case MSG_BLOCK_DESTROYED: {
+            msg_block_destroyed_t *block_destroyed = (msg_block_destroyed_t *)payload;
+            block_destroyed->cell_index = htons(block_destroyed->cell_index);
+            break;
+        }
+        default:
+            break;
+    }
+
+    return 0;
+}
+
+/* --------------------------------------------------------------------- */
 /*              beginning of sending different prot msgs                 */
 /* --------------------------------------------------------------------- */
 
@@ -119,17 +285,17 @@ int send_map_message(int fd,
     uint8_t target_id, 
     const msg_map_t *map)
 {
-    size_t cells_len = (size_t)map->height * (size_t)map->width;
-    size_t map_len = sizeof(*map) + cells_len;
+    uint16_t cells_len = map->height * map->width;
+    uint16_t map_len = sizeof(*map) + cells_len;
 
     return send_protocol_message(fd,
         MSG_MAP,
         sender_id,
         target_id,
         map_len,
-        map);
+        map); /* cells consist of bytes - no endianness conversion necessary */
 }
-/* --------------------------------------------------------------------- */
+
 int send_ping_message(int fd, 
     uint8_t sender_id, 
     uint8_t target_id)
@@ -201,7 +367,7 @@ DEFINE_SEND_FN(player_death, MSG_DEATH, msg_death_t);
 /* --------------------------------------------------------------------- */
 
 /* for receiving messages of known constant length */
-static int recv_fixed_message(int fd, void **payload, size_t *payload_len, size_t size)
+static int recv_fixed_message(int fd, uint8_t msg_type, void **payload, size_t *payload_len, size_t size)
 {
     void *msg = malloc(size);
     if (!msg)
@@ -212,6 +378,8 @@ static int recv_fixed_message(int fd, void **payload, size_t *payload_len, size_
         free(msg);
         return rc;
     }
+
+    convert_from_be(msg_type, msg);
 
     *payload = msg;
     *payload_len = size;
@@ -333,6 +501,7 @@ static int recv_fixed_message(int fd, void **payload, size_t *payload_len, size_
         if (recv_exact(fd, &len, sizeof(len)) != 0)
             return -1;
 
+        len = ntohs(len); /* convert length from big endian to host endianness */
         size_t total_len = sizeof(msg_error_t) + (size_t)len;
         msg_error_t *msg = malloc(total_len);
         if (!msg) return -1;

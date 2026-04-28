@@ -14,7 +14,7 @@ int send_protocol_message(int fd,
     uint8_t msg_type,
     uint8_t sender_id,
     uint8_t target_id,
-    size_t payload_len,
+    uint16_t payload_len,
     const void *payload);
 
 DECL_SEND_FN(hello, msg_hello_t);
