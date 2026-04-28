@@ -813,10 +813,6 @@ static void reset_to_lobby() {
     BROADCAST_TO_EVERYONE(send_set_status(target_fd, TARGET_SERVER, TARGET_BROADCAST, &(msg_set_status_t){ .game_status = 0 }));
 }
 
-static void handle_disconnect() {
-    exit(0);
-}
-
 static void handle_error() {
     fprintf(stderr, "An error occurred while receiving data from the server.\n");
     exit(1);
