@@ -33,7 +33,7 @@ enum {
 
     /* max 8 player names +(2chars) start button + padding */
     SIDE_BAR_HEIGHT =
-        8
+        10
         + 2
         + 1
         + SPACING_WIDTH
@@ -86,6 +86,8 @@ player_t SELF_PLAYER = {
     .speed = 3
 };
 
+int player_bonus_count[8] = {0}; // track how many bonuses each player has retrieved for display purposes
+
 static void handle_user_input(int ch);
 static void draw_game_board();
 static void resize_game_board();
@@ -116,7 +118,11 @@ int main() {
     // get the name from the user 
     char name_buffer[PLAYER_NAME_LEN];
     printf("Enter your name: ");
-    scanf("%15s", name_buffer); // Limit input to prevent overflow
+    scanf("%15s", name_buffer); 
+
+
+    strncpy(SELF_PLAYER.name, name_buffer, PLAYER_NAME_LEN);
+    SELF_PLAYER.name[PLAYER_NAME_LEN - 1] = '\0';
 
     //send HELLO to server
     msg_hello_t hello_msg;
@@ -161,19 +167,6 @@ int main() {
     //     .name = "Other Test Player",
     //     .row = 1,
     //     .col = 1,
-    //     .lives = 1,
-    //     .ready = true,
-    //     .bomb_count = 2,
-    //     .bomb_radius = 1,
-    //     .bomb_timer_ticks = 20,
-    //     .speed = 4
-    // };
-
-    // OTHER_PLAYERS[1] = (player_t){
-    //     .id = 3,
-    //     .name = "Another Test Player",
-    //     .row = 3,
-    //     .col = 3,
     //     .lives = 1,
     //     .ready = true,
     //     .bomb_count = 2,
@@ -457,6 +450,7 @@ static void handle_hello(const msg_generic_t *header, const msg_hello_t *hello_m
             OTHER_PLAYERS[i].id = header->sender_id;
             strncpy(OTHER_PLAYERS[i].name, hello_msg->player_name, MAX_NAME_LEN);
             OTHER_PLAYERS[i].name[MAX_NAME_LEN] = '\0';
+            OTHER_PLAYERS[i].lives = 1;
             break;
         }
     }
@@ -488,11 +482,18 @@ static void handle_welcome(const msg_generic_t *header, const msg_welcome_t *wel
                 strncpy(OTHER_PLAYERS[j].name, client_info.player_name, MAX_NAME_LEN);
                 OTHER_PLAYERS[j].name[MAX_NAME_LEN] = '\0';
                 OTHER_PLAYERS[j].ready = client_info.ready;
+                OTHER_PLAYERS[j].lives = 1;
                 break;
             }
         }
     }
 
+}
+
+static void handle_bonus_retrieved(const msg_generic_t *header, const msg_bonus_retrieved_t *bonus_msg) {
+    (void)header; /* might be useful later */
+    uint8_t player_id = bonus_msg->player_id;
+    player_bonus_count[player_id - 1]++; // increment the bonus count for this player (player_id starts at 1)
 }
 
 static void handle_disconnect() {
@@ -538,6 +539,9 @@ static void dispatch(int fd, const msg_generic_t *header, const void *payload) {
             break;
         case MSG_DISCONNECT:
             handle_disconnect();
+            break;
+        case MSG_BONUS_RETRIEVED:
+            handle_bonus_retrieved(header, (const msg_bonus_retrieved_t *)payload);
             break;
     }
 }
@@ -931,49 +935,61 @@ static void draw_game_board() {
     /*                         PLAYER NAME BOARD                         */
     /*-------------------------------------------------------------------*/
 
-    /* TODO */
-    static const char empty[] = "Empty";
-    static const char latest_winner[] = "Latest winner: Zebiekste";
-    static const char help_text[] = "Press ESC to return / SPACE to restart";
-    
-    char line[SIDE_BAR_WIDTH-1];
-    /* print self first */
-    snprintf(line, sizeof line,
-        "%-*.*s __ %d __ 0123456789",
-        /* MAX_NAME_LEN sets the max and min width so it's aligned */
-        MAX_NAME_LEN, MAX_NAME_LEN, SELF_PLAYER.name,
-        SELF_PLAYER.id);
-    mvwaddnstr(SIDEBAR_WIN, 1, 2, line, SIDE_BAR_WIDTH-1);
-    /* 7 other players after a gap (start at row 3) */
-    for (int i = 3; i < MAX_PLAYERS + 2; i++) {
-        player_t crnt_p = OTHER_PLAYERS[i-3]; 
-        if (crnt_p.lives) {
-            snprintf(line, sizeof line,
-                "%-*.*s __ %d __ 0123456789",
-                MAX_NAME_LEN, MAX_NAME_LEN, crnt_p.name,
-                crnt_p.id);
-            mvwaddnstr(SIDEBAR_WIN, i, 2, line, SIDE_BAR_WIDTH-1);
+    // Reset the window
+    werase(SIDEBAR_WIN);
+    box(SIDEBAR_WIN, 0, 0);
+
+    char line[SIDE_BAR_WIDTH]; 
+    int current_row = 1;
+
+    // Self players
+    wattron(SIDEBAR_WIN, A_REVERSE); 
+    snprintf(line, SIDE_BAR_WIDTH - 2, " %-2d %-.*s", 
+             SELF_PLAYER.id, MAX_NAME_LEN, SELF_PLAYER.name);
+    mvwaddstr(SIDEBAR_WIN, current_row++, 1, line);
+    wattroff(SIDEBAR_WIN, A_REVERSE);
+
+    // Self stats line
+    snprintf(line, SIDE_BAR_WIDTH - 2, " [%c] Bonuses: %d", 
+             SELF_PLAYER.ready ? 'R' : ' ', 
+             player_bonus_count[SELF_PLAYER.id-1]);
+    mvwaddstr(SIDEBAR_WIN, current_row++, 1, line);
+
+    current_row++; 
+
+    // Other players
+    for (int i = 0; i < MAX_PLAYERS - 1; i++) {
+        if (current_row >= SIDE_BAR_HEIGHT - 6) break;
+
+        player_t p = OTHER_PLAYERS[i];
+        game_log("Rendering OTHER_PLAYERS[%d]: id=%d, name=%s, lives=%d, ready=%d", i, p.id, p.name, p.lives, p.ready);
+        if (p.lives > 0) {
+            snprintf(line, SIDE_BAR_WIDTH - 2, "#%d %-.*s Bonuses:%d", 
+                     p.id, 
+                     SIDE_BAR_WIDTH - 15, p.name,
+                     player_bonus_count[p.id-1]);
+            mvwaddstr(SIDEBAR_WIN, current_row++, 1, line);
         } else {
-            mvwaddnstr(SIDEBAR_WIN, i, 2, empty, SIDE_BAR_WIDTH-1);
+            wattron(SIDEBAR_WIN, A_DIM);
+            mvwaddstr(SIDEBAR_WIN, current_row++, 1, " -- Empty --");
+            wattroff(SIDEBAR_WIN, A_DIM);
         }
     }
 
-    /* should make a menu here for the first player only
-        others should see a sprite or some ascii art */
+    // Controls, bottom aligned
+    int footer_start = SIDE_BAR_HEIGHT - 6;
+    
+    mvwhline(SIDEBAR_WIN, footer_start++, 1, ACS_HLINE, SIDE_BAR_WIDTH - 2);
+    
+    wattron(SIDEBAR_WIN, A_BOLD);
+    mvwaddstr(SIDEBAR_WIN, footer_start++, 2, "CONTROLS:");
+    wattroff(SIDEBAR_WIN, A_BOLD);
 
-    mvwaddnstr(
-        SIDEBAR_WIN,
-        SIDE_BAR_HEIGHT - 3,
-        (SIDE_BAR_WIDTH - (int)strlen(latest_winner)) / 2 - 1,
-        latest_winner,
-        SIDE_BAR_WIDTH
-    );
-    mvwaddnstr(
-        SIDEBAR_WIN,
-        SIDE_BAR_HEIGHT - 2,
-        (SIDE_BAR_WIDTH - (int)strlen(help_text)) / 2 - 1,
-        help_text,
-        SIDE_BAR_WIDTH
-    );
+    mvwaddstr(SIDEBAR_WIN, footer_start++, 2, "R     - Ready");
+    mvwaddstr(SIDEBAR_WIN, footer_start++, 2, "Q     - Leave Game");
+    mvwaddstr(SIDEBAR_WIN, footer_start++, 2, "SPACE - Place Bomb");
+
+    // Re-draw the box in case hline or strings touched the edges
+    box(SIDEBAR_WIN, 0, 0);
     wrefresh(SIDEBAR_WIN);
 }

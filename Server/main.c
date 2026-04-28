@@ -470,6 +470,7 @@ static void bomb_array_explode(BombArray *a, size_t i)
                     uint8_t hit_id = GAME_MAP->cells[idx] - '0';
                     kill_player(hit_id);
                     GAME_MAP->cells[idx] = tip ? '<' : '-';
+                    GAME_MAP->cells[idx] = tip ? '<' : '-';
                 }
                 else GAME_MAP->cells[idx] = tip ? '<' : '-';
             }
@@ -759,7 +760,8 @@ static void handle_move_attempt(const msg_generic_t *header, const msg_move_atte
 
         // determine if they stepped on a laser or bonus before moving them there
         if (is_on_laser(dest_cell)) {
-            printf("Player %d killed by lasser at index %d!\n", p->id, new_pos);
+            printf("Dest cell is character: %c\n", dest_cell);
+            printf("Player %hhu killed by lasser at index %d!\n", p->id, new_pos);
             kill_player(p->id); 
             return; 
         } 
@@ -778,7 +780,7 @@ static void handle_move_attempt(const msg_generic_t *header, const msg_move_atte
 
     } else {
         blocked_move:
-            printf("Move blocked for player\n");
+            printf("Move blocked for player %hhu to (%d, %d)\n", p->id, tmp_row, tmp_col);
     }
 }
 
