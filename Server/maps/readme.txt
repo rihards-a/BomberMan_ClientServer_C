@@ -13,7 +13,7 @@ Seko laukuma karte. Elementi katrā laukuma šūnā:
     B bumba,
     A spēlētāja pārvietošanās ātruma palielināšana +1, 
     R bumbas sprādziena rādiusa palielināšana +1,
-    T bumbas atskaites laika palielināšana +1,
+    T bumbas sprādziena laika palielināšana +10 (ticks),
     N bumbu skaita palielināšana +1.
     
 Šos elemntus izmanto, kad detonējas bumbas:

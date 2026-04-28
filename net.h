@@ -36,6 +36,10 @@ int send_ping_message(int fd,
     uint8_t sender_id,
     uint8_t target_id);
 
+int send_disconnect(int fd, 
+    uint8_t sender_id, 
+    uint8_t target_id);
+
 int send_ready_message(int fd,
     uint8_t sender_id,
     uint8_t target_id);

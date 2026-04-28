@@ -322,6 +322,18 @@ int send_ping_message(int fd,
         NULL);
 }
 
+int send_disconnect(int fd, 
+    uint8_t sender_id, 
+    uint8_t target_id)
+{
+    return send_protocol_message(fd, 
+        MSG_DISCONNECT, 
+        sender_id, 
+        target_id, 
+        0, 
+        NULL);
+}
+
 int send_leave_message(int fd, 
     uint8_t sender_id, 
     uint8_t target_id)

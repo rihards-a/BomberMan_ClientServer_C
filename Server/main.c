@@ -36,12 +36,6 @@ uint8_t bombs_active_for_player[8]; /* > 0 means player has bombs on the map */
 uint16_t BOMB_DETONATION_TICKS = 20; /* 1 second, set on map init later again */
 uint8_t player_move_cooldown[8]; /* ticks until player can move again, based on their speed */
 
-void init_players(void) { // maybe put with the other functions
-    for (int i = 0; i < MAX_PLAYERS; i++) {
-        player_move_cooldown[i] = 0;
-    }
-}
-
 typedef struct {
     bomb_t bombs[MAX_BOMBS];
     size_t size;
@@ -120,17 +114,11 @@ int main() {
         if (!game_started && FD_ISSET(server_fd, &read_fds)) {
             socklen_t addr_len = sizeof(client_addr);
             int new_fd = accept(server_fd, (struct sockaddr*)&client_addr, &addr_len);
-
-            /* TODO: before accepting the server should receive the HELLO message
-                and evaluate if the client is allowed to join, if not send DISCONNECT.
-
-                all of this should be put into a handle_new_connection() function
-                
-                but currently just accepts the connection here with no checks */
             
             if (new_fd >= 0) {
                 if (!add_to_client_list(new_fd)) {
                     printf("Server full! Rejecting connection on FD %d\n", new_fd);
+                    send_disconnect(new_fd, TARGET_SERVER, 0);
                     close(new_fd);
                 }
             }
@@ -155,21 +143,8 @@ int main() {
             /* currently allow single player, otherwise check for player_count > 1 */
             if (everyone_ready) {
                 printf("All players ready! Starting game...\n");
-
-                /* later allow the first player to specify the map */
                 init_map_from_file(MAP_FILE_PATH);
-
                 game_started = true;
-                /* set map positions for players here perhaps? */
-                init_players(); 
-                
-                // for (int i = 0; i < MAX_PLAYERS; i++) {
-                //     if (client_sockets[i] > 0) {
-                //         send_map_message(client_sockets[i], 
-                //             TARGET_SERVER, TARGET_BROADCAST, GAME_MAP);
-                //     }
-                // }
-
                 BROADCAST_TO_EVERYONE(send_map_message(target_fd, TARGET_SERVER, TARGET_BROADCAST, GAME_MAP));
             }
         }
@@ -282,10 +257,6 @@ static void handle_initial_connection(int fd, const msg_hello_t *hello_msg) {
     player_count++;
 }
 
-    
-
-
-
 static void init_map_from_file(const char *filename) {
     FILE *fp = fopen(filename, "r");
     if (!fp) {
@@ -394,7 +365,7 @@ static void bomb_array_explode(BombArray *a, size_t i)
                 int32_t idx = ci - r * GAME_MAP->width;
                 if (idx < 0)                                blocked_up = 1;
                 else if (GAME_MAP->cells[idx] == 'H')       blocked_up = 1;
-                else if (GAME_MAP->cells[idx] == 'S')       blocked_up = 1; /* TODO: soft wall block destroyed message? we don't need it really */
+                else if (GAME_MAP->cells[idx] == 'S')       blocked_up = 1;
                 else if (GAME_MAP->cells[idx] == '@') {     
                     printf("Chain reaction triggered at cell index %d!\n", idx);
                     blocked_up = 1;
@@ -504,12 +475,6 @@ static void bomb_array_explode(BombArray *a, size_t i)
 
         /* send explosion start message to clients */
         printf("Bomb at (%d, %d) started exploding!\n", a->bombs[i].row, a->bombs[i].col);
-        // if (send_explosion_start(CLIENT_FD, TARGET_SERVER, TARGET_BROADCAST, &(msg_explosion_start_t){
-        //     .cell_index = cell_index,
-        //     .radius = a->bombs[i].radius
-        // }) < 0) {
-        //     perror("Failed to send explosion start message");
-        // }
         u_int8_t cur_radius = a->bombs[i].radius;
         BROADCAST_TO_EVERYONE(send_explosion_start(target_fd, TARGET_SERVER, TARGET_BROADCAST, &(msg_explosion_start_t){
             .cell_index = cell_index,
@@ -704,40 +669,6 @@ static void handle_move_attempt(const msg_generic_t *header, const msg_move_atte
     }
 
     uint16_t new_pos = make_cell_index(tmp_row, tmp_col, GAME_MAP->width);
-    /* check if the new position is valid (not a wall) */
-    // if (GAME_MAP->cells[new_pos] == '.' || 
-    //     is_bonus_cell(GAME_MAP->cells[new_pos]) ||
-    //     is_on_laser(GAME_MAP->cells[new_pos])) {
-    //     if (!is_player_on_bomb[players[header->sender_id - 1].id]) {
-    //         GAME_MAP->cells[pos] = '.'; /* clear old position */
-    //     } else {
-    //         /* player is moving off the bomb, keep it on screen */
-    //         is_player_on_bomb[players[header->sender_id - 1].id] = 0;
-    //     }
-    //     if (is_bonus_cell(GAME_MAP->cells[new_pos])) {
-    //         apply_bonus(players[header->sender_id - 1].id, GAME_MAP->cells[new_pos], new_pos);
-    //     }
-    //     if (!is_on_laser(GAME_MAP->cells[new_pos])) {
-    //         GAME_MAP->cells[new_pos] = '0' + players[header->sender_id - 1].id; /* move player to new position */
-    //     } else {
-    //         printf("Player %d stepped on a laser at cell index %d!\n", players[header->sender_id - 1].id, new_pos);
-    //         kill_player(players[header->sender_id - 1].id);
-    //         return;
-    //     }
-    //     players[header->sender_id - 1].row = tmp_row;
-    //     players[header->sender_id - 1].col = tmp_col;
-        
-    //     // BROADCAST the move to EVERYONE (including the person who moved)
-    //     msg_moved_t move_msg = {
-    //         .player_id = header->sender_id, // Use the ID from the incoming header
-    //         .cell_index = new_pos
-    //     };
-    //     BROADCAST_TO_EVERYONE(send_moved(target_fd, TARGET_SERVER, TARGET_BROADCAST, &move_msg));
-
-    // } else {
-    //     blocked_move:
-    //         printf("Move blocked to position (%d, %d)\n", tmp_row, tmp_col);
-    // }
 
     uint8_t p_idx = header->sender_id - 1;
     player_t *p = &players[p_idx];
