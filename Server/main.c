@@ -34,7 +34,8 @@ int CLIENT_FD; // TODO: remove after cleaning up server->client message handling
 uint8_t is_player_on_bomb[8];
 uint8_t bombs_active_for_player[8]; /* > 0 means player has bombs on the map */
 uint16_t BOMB_DETONATION_TICKS = 20; /* 1 second, set on map init later again */
-uint8_t player_move_cooldown[8]; /* ticks until player can move again, based on their speed */
+uint8_t player_move_cooldown[8] = {0}; /* ticks until player can move again, based on their speed */
+
 
 typedef struct {
     bomb_t bombs[MAX_BOMBS];
@@ -49,14 +50,19 @@ int client_sockets[MAX_PLAYERS] = {0};
 player_t players[MAX_PLAYERS];
 uint8_t player_count = 0;
 
+game_status_t game_status = GAME_LOBBY;
+uint8_t last_alive_id = 0;
+
 static void decrement_move_cooldown(void);
 static void handle_client_messages(int fd);
 static void init_map_from_file(const char *filename);
 bool add_to_client_list(int new_fd);
+static void check_game_finished(void);
+static void finish_game(void);
+static void reset_to_lobby(void);
 
 int main() {  
     int server_fd;  
-    bool game_started = false;
     struct sockaddr_in server_addr, client_addr;  
 
     server_fd = socket(AF_INET, SOCK_STREAM, 0);  
@@ -92,7 +98,7 @@ int main() {
          /* only reinitialize server during the lobby phase 
             for accepting new connections to the server. */
         int max_fd = 0;
-        if (!game_started) {
+        if (game_status == GAME_LOBBY) {
             FD_SET(server_fd, &read_fds);
             max_fd = server_fd;
         }
@@ -111,7 +117,7 @@ int main() {
         }
 
         /* --- 1. HANDLE NEW CONNECTIONS (LOBBY) --- */
-        if (!game_started && FD_ISSET(server_fd, &read_fds)) {
+        if (game_status == GAME_LOBBY && FD_ISSET(server_fd, &read_fds)) {
             socklen_t addr_len = sizeof(client_addr);
             int new_fd = accept(server_fd, (struct sockaddr*)&client_addr, &addr_len);
             
@@ -132,7 +138,7 @@ int main() {
         }
 
         /* --- 3. LOBBY LOGIC: START GAME? --- */
-        if (!game_started && player_count > 0) {
+        if (game_status == GAME_LOBBY && player_count > 0) {
             bool everyone_ready = true;
             for (int i = 0; i < 8; i++) {
                 if (client_sockets[i] > 0 && !players[i].ready) {
@@ -144,16 +150,22 @@ int main() {
             if (everyone_ready) {
                 printf("All players ready! Starting game...\n");
                 init_map_from_file(MAP_FILE_PATH);
-                game_started = true;
+                
+                BROADCAST_TO_EVERYONE(send_set_status(target_fd, TARGET_SERVER, TARGET_BROADCAST, &(msg_set_status_t){ .game_status = 1 }));
+                game_status = GAME_RUNNING;
+
                 BROADCAST_TO_EVERYONE(send_map_message(target_fd, TARGET_SERVER, TARGET_BROADCAST, GAME_MAP));
             }
         }
 
         /* --- 4. GAME TICKS --- */
-        if (game_started) {
+        if (game_status == GAME_RUNNING) {
             decrement_move_cooldown();
             bomb_array_tick(&ACTIVE_BOMBS);
         }
+
+        check_game_finished();
+
 
         usleep(1000000 / TICKS_PER_SECOND); /* 1e6 for microsecond to second */
     }
@@ -744,6 +756,65 @@ static void handle_disconnect(int fd) {
             break;
         }
     }
+}
+
+static void check_game_finished() {
+    if (game_status != GAME_RUNNING) {
+        return;
+    }
+    uint8_t alive_count = 0;
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        if (client_sockets[i] > 0 && players[i].lives > 0) {
+            alive_count++;
+            last_alive_id = players[i].id;
+        }
+    }
+    if (alive_count <= 1) {
+        printf("Game finished! Winner: Player %d\n", last_alive_id);
+        BROADCAST_TO_EVERYONE(send_set_status(target_fd, TARGET_SERVER, TARGET_BROADCAST, &(msg_set_status_t){ .game_status = 2 }));
+        game_status = GAME_END;
+
+        finish_game();
+        reset_to_lobby();
+    }
+}
+
+static void finish_game() {
+    // send winner, last alive
+    BROADCAST_TO_EVERYONE(send_winner(target_fd, TARGET_SERVER, TARGET_BROADCAST, &(msg_winner_t){ .winner_id = last_alive_id }));
+
+    // keep winner on screen for 10 seconds before resetting lobby
+    sleep(3); // TODO: change to 10 seconds in final version
+}
+
+static void reset_to_lobby() {
+    printf("Resetting game to lobby...\n");
+    // reset player states
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        if (client_sockets[i] > 0) {
+            players[i].ready = false;
+            players[i].lives = 1;
+            players[i].speed = 3;
+            players[i].bomb_count = 2;
+            players[i].bomb_radius = 1;
+            players[i].bomb_timer_ticks = 20;
+        }
+    }
+    printf("Player states reset.\n");
+
+    // free map and bombs
+    free(GAME_MAP);
+    ACTIVE_BOMBS.size = 0;
+
+    // reset game status
+    game_status = GAME_LOBBY;
+
+    // send lobby status to clients
+    BROADCAST_TO_EVERYONE(send_set_status(target_fd, TARGET_SERVER, TARGET_BROADCAST, &(msg_set_status_t){ .game_status = 0 }));
+}
+
+static void handle_disconnect() {
+    exit(0);
 }
 
 static void handle_error() {

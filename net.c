@@ -377,6 +377,7 @@ int send_welcome_message(int fd,
 
 /* --------------------------------------------------------------------- */
 DEFINE_SEND_FN(hello, MSG_HELLO, msg_hello_t);
+DEFINE_SEND_FN(set_status, MSG_SET_STATUS, msg_set_status_t);
 DEFINE_SEND_FN(move_attempt, MSG_MOVE_ATTEMPT, msg_move_attempt_t);
 DEFINE_SEND_FN(moved, MSG_MOVED, msg_moved_t);
 DEFINE_SEND_FN(bomb_attempt, MSG_BOMB_ATTEMPT, msg_bomb_attempt_t);
@@ -387,6 +388,7 @@ DEFINE_SEND_FN(bonus_available, MSG_BONUS_AVAILABLE, msg_bonus_available_t);
 DEFINE_SEND_FN(bonus_retrieved, MSG_BONUS_RETRIEVED, msg_bonus_retrieved_t);
 DEFINE_SEND_FN(block_destroyed, MSG_BLOCK_DESTROYED, msg_block_destroyed_t);
 DEFINE_SEND_FN(player_death, MSG_DEATH, msg_death_t);
+DEFINE_SEND_FN(winner, MSG_WINNER, msg_winner_t);
 
 /* --------------------------------------------------------------------- */
 /*                      beginning of receiver declaration                */
