@@ -37,7 +37,7 @@ uint16_t BOMB_DETONATION_TICKS = 20; /* 1 second, set on map init later again */
 uint8_t player_move_cooldown[8] = {0}; /* ticks until player can move again, based on their speed */
 uint8_t player_bonus_count[8] = {0};
 uint32_t TICK_COUNT = 0;
-const uint32_t TARGET_TICKS = 10 * TICKS_PER_SECOND; /* 2 minutes */
+const uint32_t TARGET_TICKS = 2 * 60 * TICKS_PER_SECOND; /* 2 minutes */
 
 
 typedef struct {
