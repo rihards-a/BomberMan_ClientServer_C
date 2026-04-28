@@ -27,6 +27,7 @@ do {                                                          \
     }                                                         \
 } while (0)
 
+char MAP_FILE_PATH[256] = "maps/test_map_1.txt"; /* default map, can be set by first player in lobby later */
 msg_map_t *GAME_MAP;
 int CLIENT_FD; // TODO: remove after cleaning up server->client message handling
 
@@ -156,7 +157,7 @@ int main() {
                 printf("All players ready! Starting game...\n");
 
                 /* later allow the first player to specify the map */
-                init_map_from_file("maps/test_map_1.txt");
+                init_map_from_file(MAP_FILE_PATH);
 
                 game_started = true;
                 /* set map positions for players here perhaps? */
@@ -836,9 +837,25 @@ static void dispatch(int fd, const msg_generic_t *header, const void *payload) {
             handle_move_attempt(header, (const msg_move_attempt_t *)payload);
             break;
         }
-
         case MSG_BOMB_ATTEMPT: {
             handle_bomb_attempt(header, (const msg_bomb_attempt_t *)payload);
+            break;
+        }
+        case MSG_CHOOSE_MAP: {
+            /* verify this is coming from the first player 
+                - the player with the lowest ID */
+            uint8_t lowest_id = 255;
+            for (int i = 0; i < MAX_PLAYERS; i++) {
+                if (client_sockets[i] > 0 && players[i].id < lowest_id) {
+                    lowest_id = players[i].id;
+                }
+            }
+            if (header->sender_id == lowest_id) {
+                printf("Map successfully changed.");
+                msg_choose_map_t *map_msg = (msg_choose_map_t *)payload;
+                memcpy(MAP_FILE_PATH, map_msg->map_name, map_msg->length);
+                MAP_FILE_PATH[map_msg->length] = '\0';
+            }
             break;
         }
     }

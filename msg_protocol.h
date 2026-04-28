@@ -211,6 +211,15 @@ typedef struct {
     uint16_t cell_index;
 } msg_block_destroyed_t;
 
+/*
+ * Message 50: CHOOSE_MAP
+ * Map name char[]
+ */
+typedef struct {
+    uint8_t length;
+    char map_name[];
+} msg_choose_map_t;
+
 #pragma pack(pop)
 
 #endif

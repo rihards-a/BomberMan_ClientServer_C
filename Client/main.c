@@ -65,6 +65,7 @@ WINDOW *TERMINAL_WIN = NULL, *SIDEBAR_WIN = NULL, *MAP_WIN = NULL;
 uint8_t BLOCK_SIZE;
 int CLIENT_FD;
 GameMap GAME_MAP;
+char MAP_FILE_PATH[255]; /* for choosing the map */
 player_t *OTHER_PLAYERS;
 
 volatile sig_atomic_t resized = 1; /* 1 to enter loop on start */
@@ -118,11 +119,7 @@ int main() {
     // get the name from the user 
     char name_buffer[PLAYER_NAME_LEN];
     printf("Enter your name: ");
-    scanf("%15s", name_buffer); 
-
-
-    strncpy(SELF_PLAYER.name, name_buffer, PLAYER_NAME_LEN);
-    SELF_PLAYER.name[PLAYER_NAME_LEN - 1] = '\0';
+    fgets(name_buffer, PLAYER_NAME_LEN, stdin);
 
     //send HELLO to server
     msg_hello_t hello_msg;
@@ -592,6 +589,21 @@ static void handle_user_input(int ch) {
         }
         else if (ch == 'q' || ch == 'Q') {
             send_leave_message(CLIENT_FD, SELF_PLAYER.id, TARGET_SERVER);
+        }
+        else if (ch == '1' || ch == '2' || ch == '3') {
+            int n = snprintf(MAP_FILE_PATH, sizeof MAP_FILE_PATH, "maps/test_map_%c.txt", ch);
+            if (n < 0 || n > 254) return;
+
+            uint8_t len = (uint8_t)(n + 1);
+
+            msg_choose_map_t *msg = malloc(sizeof(*msg) + len);
+            if (!msg) return;
+
+            msg->length = len;
+            memcpy(msg->map_name, MAP_FILE_PATH, len);
+
+            send_choose_map(CLIENT_FD, SELF_PLAYER.id, TARGET_SERVER, msg);
+            free(msg);
         }
         else if (ch == 27) { /* ESC */ exit(1); }
     }

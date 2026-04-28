@@ -296,6 +296,20 @@ int send_map_message(int fd,
         map); /* cells consist of bytes - no endianness conversion necessary */
 }
 
+int send_choose_map(int fd, 
+    uint8_t sender_id, 
+    uint8_t target_id, 
+    const msg_choose_map_t *map_name)
+{
+    uint16_t map_len = sizeof(*map_name) + map_name->length;
+    return send_protocol_message(fd,
+        MSG_CHOOSE_MAP,
+        sender_id,
+        target_id,
+        map_len,
+        map_name); /* cells consist of bytes - no endianness conversion necessary */
+}
+
 int send_ping_message(int fd, 
     uint8_t sender_id, 
     uint8_t target_id)
@@ -428,7 +442,6 @@ static int recv_fixed_message(int fd, uint8_t msg_type, void **payload, size_t *
         case MSG_PONG:
         case MSG_LEAVE:
         case MSG_SET_READY:
-        case MSG_SYNC_REQUEST:
             return 0;
 
     RECV_FIXED_CASE(MSG_HELLO,           msg_hello_t);
@@ -516,6 +529,29 @@ static int recv_fixed_message(int fd, uint8_t msg_type, void **payload, size_t *
         }
 
         *payload     = msg;
+        *payload_len = total_len;
+        return 0;
+    }
+
+    case MSG_CHOOSE_MAP: {
+        uint8_t len;
+        if (recv_exact(fd, &len, sizeof(len)) != 0)
+            return -1;
+
+        size_t total_len = sizeof(msg_choose_map_t) + (size_t)len;
+        msg_choose_map_t *map_choice = malloc(total_len);
+        if (!map_choice) return -1;
+
+        map_choice->length = len;
+
+        if (len > 0) {
+            if (recv_exact(fd, map_choice->map_name, len) != 0) {
+                free(map_choice);
+                return -1;
+            }
+        }
+
+        *payload     = map_choice;
         *payload_len = total_len;
         return 0;
     }
