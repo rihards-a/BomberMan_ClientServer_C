@@ -83,7 +83,7 @@ typedef struct {
  * No fixed fields exist here.
  */
 typedef struct {
-    uint8_t length;
+    uint16_t length;
     char message[];
 } msg_error_t;
 
