@@ -17,8 +17,8 @@
 
 #define BROADCAST_TO_EVERYONE(SEND_EXPR)                      \
 do {                                                          \
-    for (int i = 0; i < MAX_PLAYERS; ++i) {                   \
-        int target_fd = client_sockets[i];                    \
+    for (int _i = 0; _i < MAX_PLAYERS; ++_i) {                   \
+        int target_fd = client_sockets[_i];                    \
         if (target_fd > 0) {                                  \
             if ((SEND_EXPR) < 0) {                            \
                 perror("Failed to broadcast message");        \
@@ -723,8 +723,27 @@ static void decrement_move_cooldown() {
     }
 }
 
-static void handle_disconnect() {
-    exit(0);
+static void handle_disconnect(int fd) {
+    printf("Client disconnected on FD %d\n", fd);
+    /* find the player index and clear their info */
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        if (client_sockets[i] == fd) {
+            client_sockets[i] = 0;
+            printf("Player %d (%s) has disconnected.\n", players[i].id, players[i].name);
+            printf("fd %d removed from client_sockets\n", fd);
+            BROADCAST_TO_EVERYONE(send_player_death(target_fd, TARGET_SERVER, TARGET_BROADCAST, &(msg_death_t){ .player_id = players[i].id }));
+            players[i].id = 0;
+            memset(players[i].name, 0, PLAYER_NAME_LEN);
+            players[i].ready = false;
+            players[i].lives = 0;
+            uint16_t gi = make_cell_index(players[i].row, players[i].col, GAME_MAP->width);
+            GAME_MAP->cells[gi] = '.'; /* clear player from map */
+            players[i].row = -1;
+            players[i].col = -1;
+            player_count--;
+            break;
+        }
+    }
 }
 
 static void handle_error() {
@@ -801,7 +820,7 @@ static void handle_client_messages(int fd)
         int rc = recv_protocol_message(fd, &header, &payload, &payload_len);
 
         if (rc == 2) return;               /* nothing pending this tick */
-        if (rc == 1) { handle_disconnect(); return; }
+        if (rc == 1) { handle_disconnect(fd); return; }
         if (rc == -1){ handle_error();      return; }
 
         dispatch(fd, &header, payload);
