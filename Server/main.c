@@ -35,6 +35,9 @@ uint8_t is_player_on_bomb[8];
 uint8_t bombs_active_for_player[8]; /* > 0 means player has bombs on the map */
 uint16_t BOMB_DETONATION_TICKS = 20; /* 1 second, set on map init later again */
 uint8_t player_move_cooldown[8] = {0}; /* ticks until player can move again, based on their speed */
+uint8_t player_bonus_count[8] = {0};
+uint32_t TICK_COUNT = 0;
+const uint32_t TARGET_TICKS = 10 * TICKS_PER_SECOND; /* 2 minutes */
 
 
 typedef struct {
@@ -51,7 +54,7 @@ player_t players[MAX_PLAYERS];
 uint8_t player_count = 0;
 
 game_status_t game_status = GAME_LOBBY;
-uint8_t last_alive_id = 0;
+uint8_t WINNER_ID = 0;
 
 static void decrement_move_cooldown(void);
 static void handle_client_messages(int fd);
@@ -60,6 +63,7 @@ bool add_to_client_list(int new_fd);
 static void check_game_finished(void);
 static void finish_game(void);
 static void reset_to_lobby(void);
+static void finish_game_time(void);
 
 int main() {  
     int server_fd;  
@@ -165,8 +169,11 @@ int main() {
         }
 
         check_game_finished();
-
-
+        if (game_status == GAME_RUNNING && ++TICK_COUNT >= TARGET_TICKS) {
+            printf("Tick limit reached, finishing game...\n");
+            finish_game_time();
+        }
+        
         usleep(1000000 / TICKS_PER_SECOND); /* 1e6 for microsecond to second */
     }
 
@@ -186,6 +193,24 @@ int main() {
 
 
 /* -------------------------- function declarations --------------------------- */
+
+static void finish_game_time() {
+    /* decide the winner based off most bonus pickups then send as broadcast */
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        if (client_sockets[i] > 0) {
+            if (WINNER_ID == 0 || player_bonus_count[i] > player_bonus_count[WINNER_ID - 1]) {
+                WINNER_ID = players[i].id;
+            }
+        }
+    }
+
+    printf("Game finished! Winner: Player %d\n", WINNER_ID);
+    BROADCAST_TO_EVERYONE(send_set_status(target_fd, TARGET_SERVER, TARGET_BROADCAST, &(msg_set_status_t){ .game_status = 2 }));
+    game_status = GAME_END;
+
+    finish_game();
+    reset_to_lobby();
+}
 
 bool add_to_client_list(int new_fd) {
     for (int i = 0; i < MAX_PLAYERS; i++) {
@@ -710,6 +735,7 @@ static void handle_move_attempt(const msg_generic_t *header, const msg_move_atte
         } 
         
         if (is_bonus_cell(dest_cell)) {
+            player_bonus_count[p_idx]++;
             apply_bonus(p->id, dest_cell, new_pos);
         }
 
@@ -773,11 +799,11 @@ static void check_game_finished() {
     for (int i = 0; i < MAX_PLAYERS; i++) {
         if (client_sockets[i] > 0 && players[i].lives > 0) {
             alive_count++;
-            last_alive_id = players[i].id;
+            WINNER_ID = players[i].id;
         }
     }
     if (alive_count <= 1) {
-        printf("Game finished! Winner: Player %d\n", last_alive_id);
+        printf("Game finished! Winner: Player %d\n", WINNER_ID);
         BROADCAST_TO_EVERYONE(send_set_status(target_fd, TARGET_SERVER, TARGET_BROADCAST, &(msg_set_status_t){ .game_status = 2 }));
         game_status = GAME_END;
 
@@ -788,7 +814,8 @@ static void check_game_finished() {
 
 static void finish_game() {
     // send winner, last alive
-    BROADCAST_TO_EVERYONE(send_winner(target_fd, TARGET_SERVER, TARGET_BROADCAST, &(msg_winner_t){ .winner_id = last_alive_id }));
+    BROADCAST_TO_EVERYONE(send_winner(target_fd, TARGET_SERVER, TARGET_BROADCAST, &(msg_winner_t){ .winner_id = WINNER_ID }));
+    TICK_COUNT = 0;
 
     // keep winner on screen for 10 seconds before resetting lobby
     sleep(3); // TODO: change to 10 seconds in final version
