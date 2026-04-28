@@ -31,12 +31,12 @@ enum {
         + 10
         + SPACING_WIDTH,
 
-    /* max 8 player names +(2chars) start button + padding */
+    /* max 8 player names 1 for a line + 6 for control info + 4 for spacing */
     SIDE_BAR_HEIGHT =
-        10
-        + 2
+        8
         + 1
-        + SPACING_WIDTH
+        + 8
+        + 2
 };
 
 void game_log(const char *format, ...) {
@@ -117,14 +117,14 @@ int main() {
     printf("Server connection successful\n"); 
     
     // get the name from the user 
-    char name_buffer[PLAYER_NAME_LEN];
     printf("Enter your name: ");
-    fgets(name_buffer, PLAYER_NAME_LEN, stdin);
+    fgets(SELF_PLAYER.name, PLAYER_NAME_LEN, stdin);
+    SELF_PLAYER.name[PLAYER_NAME_LEN+1] = '\0';
 
     //send HELLO to server
     msg_hello_t hello_msg;
     strncpy(hello_msg.client_id, "TEST_CLT_1.0", CLIENT_ID_LEN);
-    strncpy(hello_msg.player_name, name_buffer, PLAYER_NAME_LEN);
+    strncpy(hello_msg.player_name, SELF_PLAYER.name, PLAYER_NAME_LEN);
 
     if (send_hello(CLIENT_FD, 0, TARGET_SERVER, &hello_msg) < 0) {
         fprintf(stderr, "Failed to send HELLO message to server.\n");
@@ -605,7 +605,6 @@ static void handle_user_input(int ch) {
             send_choose_map(CLIENT_FD, SELF_PLAYER.id, TARGET_SERVER, msg);
             free(msg);
         }
-        else if (ch == 27) { /* ESC */ exit(1); }
     }
 }
 
@@ -974,7 +973,7 @@ static void draw_game_board() {
         if (current_row >= SIDE_BAR_HEIGHT - 6) break;
 
         player_t p = OTHER_PLAYERS[i];
-        game_log("Rendering OTHER_PLAYERS[%d]: id=%d, name=%s, lives=%d, ready=%d", i, p.id, p.name, p.lives, p.ready);
+        // game_log("Rendering OTHER_PLAYERS[%d]: id=%d, name=%s, lives=%d, ready=%d", i, p.id, p.name, p.lives, p.ready);
         if (p.lives > 0) {
             snprintf(line, SIDE_BAR_WIDTH - 2, "#%d %-.*s Bonuses:%d", 
                      p.id, 
@@ -989,7 +988,7 @@ static void draw_game_board() {
     }
 
     // Controls, bottom aligned
-    int footer_start = SIDE_BAR_HEIGHT - 6;
+    int footer_start = SIDE_BAR_HEIGHT - 8;
     
     mvwhline(SIDEBAR_WIN, footer_start++, 1, ACS_HLINE, SIDE_BAR_WIDTH - 2);
     
@@ -997,11 +996,13 @@ static void draw_game_board() {
     mvwaddstr(SIDEBAR_WIN, footer_start++, 2, "CONTROLS:");
     wattroff(SIDEBAR_WIN, A_BOLD);
 
-    mvwaddstr(SIDEBAR_WIN, footer_start++, 2, "R     - Ready");
-    mvwaddstr(SIDEBAR_WIN, footer_start++, 2, "Q     - Leave Game");
-    mvwaddstr(SIDEBAR_WIN, footer_start++, 2, "SPACE - Place Bomb");
+    mvwaddstr(SIDEBAR_WIN, footer_start++, 2, "R            - Ready");
+    mvwaddstr(SIDEBAR_WIN, footer_start++, 2, "Q            - Leave Game");
+    mvwaddstr(SIDEBAR_WIN, footer_start++, 2, "Arrow Keys   - Move");
+    mvwaddstr(SIDEBAR_WIN, footer_start++, 2, "SPACE        - Place Bomb");
+    mvwaddstr(SIDEBAR_WIN, footer_start++, 2, "[1|2|3]      - Choose Map");
 
-    // Re-draw the box in case hline or strings touched the edges
+    // // Re-draw the box in case hline or strings touched the edges
     box(SIDEBAR_WIN, 0, 0);
     wrefresh(SIDEBAR_WIN);
 }
