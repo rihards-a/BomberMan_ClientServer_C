@@ -471,7 +471,6 @@ static void bomb_array_explode(BombArray *a, size_t i)
                     uint8_t hit_id = GAME_MAP->cells[idx] - '0';
                     kill_player(hit_id);
                     GAME_MAP->cells[idx] = tip ? '<' : '-';
-                    GAME_MAP->cells[idx] = tip ? '<' : '-';
                 }
                 else GAME_MAP->cells[idx] = tip ? '<' : '-';
             }
@@ -781,7 +780,7 @@ static void handle_move_attempt(const msg_generic_t *header, const msg_move_atte
 
     } else {
         blocked_move:
-            printf("Move blocked for player %hhu to (%d, %d)\n", p->id, tmp_row, tmp_col);
+            printf("Move blocked for player\n");
     }
 }
 
