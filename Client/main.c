@@ -111,7 +111,22 @@ int main() {
         perror("Connection failed");  
         return EXIT_FAILURE;  
     }  
-    printf("Server connection successful\n");  
+    printf("Server connection successful\n"); 
+    
+    // get the name from the user 
+    char name_buffer[PLAYER_NAME_LEN];
+    printf("Enter your name: ");
+    scanf("%15s", name_buffer); // Limit input to prevent overflow
+
+    //send HELLO to server
+    msg_hello_t hello_msg;
+    strncpy(hello_msg.client_id, "TEST_CLT_1.0", CLIENT_ID_LEN);
+    strncpy(hello_msg.player_name, name_buffer, PLAYER_NAME_LEN);
+
+    if (send_hello(CLIENT_FD, 0, TARGET_SERVER, &hello_msg) < 0) {
+        fprintf(stderr, "Failed to send HELLO message to server.\n");
+        return EXIT_FAILURE;
+    }
 
     /* TITLE SCREEN ASCII ART */
     const char *title =
@@ -360,22 +375,39 @@ static void handle_moved(const msg_generic_t *header, const msg_moved_t *moved_m
 
 static void handle_death(const msg_generic_t *header, const msg_death_t *death_msg) {
     (void)header; /* might be useful later */
-    uint16_t cur_pos = make_cell_index(SELF_PLAYER.row, SELF_PLAYER.col, GAME_MAP.width);
-    uint8_t player_id = death_msg->player_id;
+    u_int8_t dead_player_id = death_msg->player_id;
+    u_int16_t dead_p_row = -1, dead_p_col = -1;
+    bool found = false;
 
-    /* clear the cell of the dead player */
-    if (GAME_MAP.cells[cur_pos] == '0' + player_id) {
-        GAME_MAP.cells[cur_pos] = '.';
+    if (dead_player_id == SELF_PLAYER.id) {
+        dead_p_row = SELF_PLAYER.row;
+        dead_p_col = SELF_PLAYER.col;
+        found = true;
+    } else {
+        for (int i = 0; i < 7; i++) {
+            if (OTHER_PLAYERS[i].id == dead_player_id) {
+                dead_p_row = OTHER_PLAYERS[i].row;
+                dead_p_col = OTHER_PLAYERS[i].col;
+                found = true;
+                break;
+            }
+        }
     }
 
-    /* check if it's for self */
-    if (death_msg->player_id == SELF_PLAYER.id) {
+    if (found) {
+        uint16_t cur_pos = make_cell_index(dead_p_row, dead_p_col, GAME_MAP.width);
+        if (GAME_MAP.cells[cur_pos] == '0' + dead_player_id) {
+            GAME_MAP.cells[cur_pos] = '.';
+        }
+    }
+
+    if (dead_player_id == SELF_PLAYER.id) {
         SELF_PLAYER.row = -1;
         SELF_PLAYER.col = -1;
         SELF_PLAYER.lives = 0;
     } else {
         for (int i = 0; i < 7; i++) {
-            if (OTHER_PLAYERS[i].id == player_id) {
+            if (OTHER_PLAYERS[i].id == dead_player_id) {
                 OTHER_PLAYERS[i].row = -1;
                 OTHER_PLAYERS[i].col = -1;
                 OTHER_PLAYERS[i].lives = 0;
@@ -412,6 +444,20 @@ static void handle_map_message(const msg_generic_t *header, const msg_map_t *map
                     }
                 }
             }
+        }
+    }
+
+}
+
+static void handle_hello(const msg_generic_t *header, const msg_hello_t *hello_msg) {
+    (void)header; /* might be useful later */
+    // (void)hello_msg; /* to silence unused parameter warning for now */
+    for (int i = 0; i < 7; i++) {
+        if (OTHER_PLAYERS[i].id == 0) {
+            OTHER_PLAYERS[i].id = header->sender_id;
+            strncpy(OTHER_PLAYERS[i].name, hello_msg->player_name, MAX_NAME_LEN);
+            OTHER_PLAYERS[i].name[MAX_NAME_LEN] = '\0';
+            break;
         }
     }
 
@@ -464,6 +510,9 @@ static void dispatch(int fd, const msg_generic_t *header, const void *payload) {
     (void)fd; /* not needed for now, but might be useful later for messages that require a response */
 
     switch (header->msg_type) {
+        case MSG_HELLO:
+            handle_hello(header, (const msg_hello_t *)payload);
+            break;
         case MSG_MAP:
             handle_map_message(header, (const msg_map_t *)payload);
             break;
@@ -520,7 +569,7 @@ static void handle_movement_input(int ch) {
     if (ch == KEY_RIGHT) { direction = 'R'; }
     
     msg_move_attempt_t move_msg = { .direction = direction };
-    send_move_attempt(CLIENT_FD, SELF_PLAYER.id, 255, &move_msg);
+    send_move_attempt(CLIENT_FD, SELF_PLAYER.id, TARGET_SERVER, &move_msg);
 }
 
 static void handle_user_input(int ch) {
@@ -531,14 +580,14 @@ static void handle_user_input(int ch) {
         }
         else if (ch == ' ') {
             msg_bomb_attempt_t bomb_msg = { .cell_index = make_cell_index(SELF_PLAYER.row, SELF_PLAYER.col, GAME_MAP.width) };
-            send_bomb_attempt(CLIENT_FD, SELF_PLAYER.id, 255, &bomb_msg);
+            send_bomb_attempt(CLIENT_FD, SELF_PLAYER.id, TARGET_SERVER, &bomb_msg);
         }
         else if (ch == 'r' || ch == 'R') {
             SELF_PLAYER.ready = !SELF_PLAYER.ready;
-            send_ready_message(CLIENT_FD, SELF_PLAYER.id, 255);
+            send_ready_message(CLIENT_FD, SELF_PLAYER.id, TARGET_SERVER);
         }
         else if (ch == 'q' || ch == 'Q') {
-            send_leave_message(CLIENT_FD, SELF_PLAYER.id, 255);
+            send_leave_message(CLIENT_FD, SELF_PLAYER.id, TARGET_SERVER);
         }
         else if (ch == 27) { /* ESC */ exit(1); }
     }

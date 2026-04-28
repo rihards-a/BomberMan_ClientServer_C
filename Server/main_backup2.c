@@ -128,7 +128,62 @@ int main() {
                 but currently just accepts the connection here with no checks */
             
             if (new_fd >= 0) {
-                if (!add_to_client_list(new_fd)) {
+                bool slot_found = false;
+
+                for (int i = 0; i < MAX_PLAYERS; i++) {
+                    if (client_sockets[i] == 0) {
+                        client_sockets[i] = new_fd;
+                        
+                        players[i].id = (uint8_t)(i + 1);
+                        players[i].ready = false;
+                        /* i think the player name comes from a hello message or similar */
+                        snprintf(players[i].name, sizeof(players[i].name), "Test Player %d", players[i].id);
+                        /* these fields get overwritten by the map info if specified */ 
+                        players[i].lives            = 1;
+                        players[i].speed            = 3;
+                        players[i].bomb_count       = 2;
+                        players[i].bomb_radius      = 1;
+                        players[i].bomb_timer_ticks = 20;
+
+
+                        welcome_client_t* client_info = malloc(MAX_PLAYERS*sizeof(welcome_client_t));
+                        uint8_t client_count = 0;
+                        for (int j = 0; j < MAX_PLAYERS; j++) {
+                            if (players[j].id != 0) {
+                                client_info[client_count].id = players[j].id;
+                                strncpy(client_info[client_count].player_name, players[j].name, sizeof(client_info[client_count].player_name));
+                                client_info[client_count].player_name[PLAYER_NAME_LEN - 1] = '\0';
+                                client_info[client_count].ready = players[j].ready;
+                                client_count++;
+                            }
+                        }
+
+                        size_t payload_size = client_count * sizeof(welcome_client_t);
+                        size_t total_msg_size = sizeof(msg_welcome_t) + payload_size;
+
+                        msg_welcome_t *welcome_msg = malloc(total_msg_size);
+
+
+                        strncpy(welcome_msg->server_id, "TEST_SRV", SERVER_ID_LEN);
+                        welcome_msg->game_status = 0;
+                        welcome_msg->length = payload_size;
+                        memcpy(welcome_msg->clients, client_info, payload_size);
+
+                        printf("Broadcasting welcome message for new player %s (ID: %d)\n", players[i].name, players[i].id);
+                        BROADCAST_TO_EVERYONE(send_welcome_message(target_fd, 255, players[i].id, welcome_msg));
+
+                        free(client_info);
+                        free(welcome_msg);
+
+                        printf("Joined: %s (ID: %d) on FD %d\n", players[i].name, players[i].id, new_fd);
+                        
+                        player_count++;
+                        slot_found = true;
+                        break;
+                    }
+                }
+
+                if (!slot_found) {
                     printf("Server full! Rejecting connection on FD %d\n", new_fd);
                     close(new_fd);
                 }
@@ -212,78 +267,6 @@ bool add_to_client_list(int new_fd) {
     }
     return false;
 }
-
-static void handle_initial_connection(int fd, const msg_hello_t *hello_msg) {
-    int idx = -1;
-    for (int i = 0; i < MAX_PLAYERS; i++) {
-        if (client_sockets[i] == fd) {
-            idx = i;
-            break;
-        }
-    }
-    if (idx == -1) {
-        printf("Error: FD %d not found in client_sockets\n", fd);
-        return;
-    }
-    printf("Handling initial connection for FD %d at index %d\n", fd, idx);
-
-    players[idx].id = (uint8_t)(idx + 1);
-    players[idx].ready = false;
-    strncpy(players[idx].name, hello_msg->player_name, PLAYER_NAME_LEN);
-    players[idx].name[PLAYER_NAME_LEN - 1] = '\0';
-    /* these fields get overwritten by the map info if specified */ 
-    players[idx].lives            = 1;
-    players[idx].speed            = 3;
-    players[idx].bomb_count       = 2;
-    players[idx].bomb_radius      = 1;
-    players[idx].bomb_timer_ticks = 20;
-
-    welcome_client_t* client_info = malloc(MAX_PLAYERS*sizeof(welcome_client_t));
-    uint8_t client_count = 0;
-    for (int j = 0; j < MAX_PLAYERS; j++) {
-        if (players[j].id != 0) {
-            client_info[client_count].id = players[j].id;
-            strncpy(client_info[client_count].player_name, players[j].name, sizeof(client_info[client_count].player_name));
-            client_info[client_count].player_name[PLAYER_NAME_LEN - 1] = '\0';
-            client_info[client_count].ready = players[j].ready;
-            client_count++;
-        }
-    }
-
-    size_t payload_size = client_count * sizeof(welcome_client_t);
-    size_t total_msg_size = sizeof(msg_welcome_t) + payload_size;
-
-    msg_welcome_t *welcome_msg = malloc(total_msg_size);
-
-    strncpy(welcome_msg->server_id, "TEST_SRV", SERVER_ID_LEN);
-    welcome_msg->game_status = 0;
-    welcome_msg->length = payload_size;
-    memcpy(welcome_msg->clients, client_info, payload_size);
-
-    printf("Broadcasting welcome message for new player %s (ID: %d)\n", players[idx].name, players[idx].id);
-    send_welcome_message(fd, 255, players[idx].id, welcome_msg);
-
-    msg_hello_t hello_msg_to_send;
-    strncpy(hello_msg_to_send.client_id, hello_msg->client_id, CLIENT_ID_LEN);
-    strncpy(hello_msg_to_send.player_name, hello_msg->player_name, PLAYER_NAME_LEN);
-
-    for (int i = 0; i < MAX_PLAYERS; i++) {
-        if (client_sockets[i] > 0 && client_sockets[i] != fd) {
-            send_hello(client_sockets[i], players[idx].id, players[i].id, &hello_msg_to_send);
-        }
-    }
-
-    free(client_info);
-    free(welcome_msg);
-
-    printf("Joined: %s (ID: %d) on FD %d\n", players[idx].name, players[idx].id, fd);
-                        
-    player_count++;
-}
-
-    
-
-
 
 static void init_map_from_file(const char *filename) {
     FILE *fp = fopen(filename, "r");
@@ -816,11 +799,6 @@ static void dispatch(int fd, const msg_generic_t *header, const void *payload) {
     }
 
     switch (header->msg_type) {
-        case MSG_HELLO: {
-            printf("Received HELLO from client with FD: %d!\n", fd);
-            handle_initial_connection(fd, (const msg_hello_t *)payload);
-            break;
-        }
         case MSG_PING: {
             printf("Received PING from client!\n");
             break;
