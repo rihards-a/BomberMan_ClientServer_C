@@ -33,6 +33,7 @@ DECL_SEND_FN(block_destroyed, msg_block_destroyed_t);
 DECL_SEND_FN(player_death, msg_death_t);
 DECL_SEND_FN(choose_map, msg_choose_map_t);
 DECL_SEND_FN(winner, msg_winner_t);
+DECL_SEND_FN(player_dc, msg_player_dc_t);
 
 int send_ping_message(int fd,
     uint8_t sender_id,

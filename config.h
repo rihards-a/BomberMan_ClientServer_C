@@ -54,7 +54,8 @@ typedef enum {
     MSG_BONUS_RETRIEVED = 46,
     MSG_BLOCK_DESTROYED = 47,
     MSG_MAP             = 50,
-    MSG_CHOOSE_MAP      = 51
+    MSG_CHOOSE_MAP      = 51,
+    MSG_PLAYER_DC       = 60    
 } msg_type_t;
 
 

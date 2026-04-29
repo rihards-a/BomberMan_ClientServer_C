@@ -250,7 +250,8 @@ int convert_to_be(uint8_t msg_type, void *payload) {
             expl_end->cell_index = htons(expl_end->cell_index);
             break;
         }
-        case MSG_DEATH: {
+        case MSG_DEATH:
+        case MSG_PLAYER_DC: {
             /* no endianness conversion needed for uint8 fields */
             break;
         }
@@ -389,6 +390,7 @@ DEFINE_SEND_FN(bonus_retrieved, MSG_BONUS_RETRIEVED, msg_bonus_retrieved_t);
 DEFINE_SEND_FN(block_destroyed, MSG_BLOCK_DESTROYED, msg_block_destroyed_t);
 DEFINE_SEND_FN(player_death, MSG_DEATH, msg_death_t);
 DEFINE_SEND_FN(winner, MSG_WINNER, msg_winner_t);
+DEFINE_SEND_FN(player_dc, MSG_PLAYER_DC, msg_player_dc_t);
 
 /* --------------------------------------------------------------------- */
 /*                      beginning of receiver declaration                */
@@ -434,17 +436,17 @@ static int recv_fixed_message(int fd, uint8_t msg_type, void **payload, size_t *
     *payload     = NULL;
     *payload_len = 0;
 
-    /* --- non-blocking gate: bail if nothing is waiting --- */
+    /* --- non-blocking gate --- */
     fd_set rfds;                    /* create a set of readable fds */
-    FD_ZERO(&rfds);                 /* to clear the set just in case */
+    FD_ZERO(&rfds);                 /* zero out the set */
     FD_SET(fd, &rfds);              /* add the fd to the set */
     struct timeval tv = { 0, 0 };   /* for how long to wait (0) */
     /* select monitors file descriptors to check if they're ready
-        for their corresponding I/O operation, read in this case. */
+        for the corresponding I/O operation - read in this case. */
     int ready = select(fd + 1, &rfds, NULL, NULL, &tv);
     if (ready == 0) return 2;   /* nothing there this tick */
     if (ready < 0)  return -1;  /* select itself failed */
-    /* --- non-blocking gate: bail if nothing is waiting --- */
+    /* --- non-blocking gate --- */
 
     int rc = recv_exact(fd, header, sizeof(*header));
     if (rc != 0)
@@ -471,6 +473,7 @@ static int recv_fixed_message(int fd, uint8_t msg_type, void **payload, size_t *
     RECV_FIXED_CASE(MSG_BONUS_AVAILABLE, msg_bonus_available_t);
     RECV_FIXED_CASE(MSG_BONUS_RETRIEVED, msg_bonus_retrieved_t);
     RECV_FIXED_CASE(MSG_BLOCK_DESTROYED, msg_block_destroyed_t);
+    RECV_FIXED_CASE(MSG_PLAYER_DC,       msg_player_dc_t);
 
     case MSG_MAP: {
         msg_map_t prefix;

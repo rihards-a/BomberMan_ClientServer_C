@@ -220,6 +220,14 @@ typedef struct {
     char map_name[];
 } msg_choose_map_t;
 
+/*
+ * Message 60: PLAYER_DC
+ * Player ID uint8_t
+ */
+typedef struct {
+    uint8_t player_id;
+} msg_player_dc_t;
+
 #pragma pack(pop)
 
 #endif
