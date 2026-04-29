@@ -236,7 +236,7 @@ static void handle_explosion_end(const msg_generic_t *header, const msg_explosio
             else if (GAME_MAP.cells[idx] == '-' ||
                      GAME_MAP.cells[idx] == '<' ||
                      GAME_MAP.cells[idx] == '>')             { /* these are from a newer explosion */ }
-            else if (GAME_MAP.cells[idx] == '^')             { blocked_up = 1; /* newer explosion starts here */}
+            else if (GAME_MAP.cells[idx] == '^')             { blocked_down = 1; /* newer explosion starts here */}
             else                                               GAME_MAP.cells[idx] = '.';
         }
         /* LEFT */
@@ -248,7 +248,7 @@ static void handle_explosion_end(const msg_generic_t *header, const msg_explosio
             else if (GAME_MAP.cells[idx] == '|' ||
                      GAME_MAP.cells[idx] == '^' ||
                      GAME_MAP.cells[idx] == 'v')             { /* these are from a newer explosion */ }
-            else if (GAME_MAP.cells[idx] == '>')             { blocked_up = 1; /* newer explosion starts here */}
+            else if (GAME_MAP.cells[idx] == '>')             { blocked_left = 1; /* newer explosion starts here */}
             else                                               GAME_MAP.cells[idx] = '.';
         }
         /* RIGHT */
@@ -260,7 +260,7 @@ static void handle_explosion_end(const msg_generic_t *header, const msg_explosio
             else if (GAME_MAP.cells[idx] == '|' ||
                      GAME_MAP.cells[idx] == '^' ||
                      GAME_MAP.cells[idx] == 'v')             { /* these are from a newer explosion */ }
-            else if (GAME_MAP.cells[idx] == '<')             { blocked_up = 1; /* newer explosion starts here */}
+            else if (GAME_MAP.cells[idx] == '<')             { blocked_right = 1; /* newer explosion starts here */}
             else                                               GAME_MAP.cells[idx] = '.';
         }
     }
@@ -406,6 +406,25 @@ static void handle_death(const msg_generic_t *header, const msg_death_t *death_m
     }
 }
 
+static void handle_player_dc(const msg_generic_t *header, const msg_player_dc_t *dc_msg) {
+    game_log("Handling player DC message for player ID %d", dc_msg->player_id);
+    (void)header; /* might be useful later */
+    uint8_t player_id = dc_msg->player_id;
+    if (game_status == GAME_RUNNING) {
+        handle_death(header, &(msg_death_t){ .player_id = player_id });
+    }
+    for (int i = 0; i < 7; i++) {
+        if (OTHER_PLAYERS[i].id == player_id) {
+            OTHER_PLAYERS[i].id = 0;
+            OTHER_PLAYERS[i].name[0] = '\0';
+            OTHER_PLAYERS[i].ready = false;
+            // OTHER_PLAYERS[i].lives = 0;
+            break;
+        }
+    }
+    game_log("Finished handling player DC message for player ID %d", player_id);
+}
+
 static void handle_map_message(const msg_generic_t *header, const msg_map_t *map_msg) {
     (void)header; /* might be useful later */
     /* update local game map with new data */
@@ -518,7 +537,6 @@ static void dispatch(int fd, const msg_generic_t *header, const void *payload) {
         case MSG_EXPLOSION_START:
             handle_explosion_start(header, (const msg_explosion_start_t *)payload);
             break;
-
         case MSG_EXPLOSION_END:
             handle_explosion_end(header, (const msg_explosion_end_t *)payload);
             break;
@@ -540,6 +558,10 @@ static void dispatch(int fd, const msg_generic_t *header, const void *payload) {
         case MSG_WINNER:
             game_winner_id = ((const msg_winner_t *)payload)->winner_id;
             handle_game_end();
+            break;
+        case MSG_PLAYER_DC:
+            game_log("Dispatching player DC message for player ID %d", ((const msg_player_dc_t *)payload)->player_id);
+            handle_player_dc(header, (const msg_player_dc_t *)payload);
             break;
 
     }
@@ -586,8 +608,10 @@ static void handle_user_input(int ch) {
             send_bomb_attempt(CLIENT_FD, SELF_PLAYER.id, TARGET_SERVER, &bomb_msg);
         }
         else if (ch == 'r' || ch == 'R') {
-            SELF_PLAYER.ready = !SELF_PLAYER.ready;
-            send_ready_message(CLIENT_FD, SELF_PLAYER.id, TARGET_SERVER);
+            if (game_status == GAME_LOBBY) {
+                SELF_PLAYER.ready = !SELF_PLAYER.ready;
+                send_ready_message(CLIENT_FD, SELF_PLAYER.id, TARGET_SERVER);
+            }
         }
         else if (ch == 'q' || ch == 'Q') {
             send_leave_message(CLIENT_FD, SELF_PLAYER.id, TARGET_SERVER);
@@ -992,7 +1016,7 @@ static void draw_game_board() {
         if (current_row >= footer_start - 2) break; 
 
         player_t p = OTHER_PLAYERS[i];
-        if (p.lives > 0) {
+        if (p.id > 0) {
             snprintf(line, SIDE_BAR_WIDTH - 2, " %-2d %-.*s", 
                      p.id, MAX_NAME_LEN, p.name);
             mvwaddstr(SIDEBAR_WIN, current_row++, 1, line);
@@ -1023,7 +1047,7 @@ static void draw_game_board() {
         wattroff(SIDEBAR_WIN, A_BOLD);
 
         mvwaddstr(SIDEBAR_WIN, footer_start++, 2, "R            - Ready");
-        mvwaddstr(SIDEBAR_WIN, footer_start++, 2, "Q            - Leave Game");
+        mvwaddstr(SIDEBAR_WIN, footer_start++, 2, "Ctrl+c       - Leave Game");
         mvwaddstr(SIDEBAR_WIN, footer_start++, 2, "Arrow Keys   - Move");
         mvwaddstr(SIDEBAR_WIN, footer_start++, 2, "SPACE        - Place Bomb");
         mvwaddstr(SIDEBAR_WIN, footer_start++, 2, "[1|2|3]      - Choose Map");

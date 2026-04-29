@@ -151,7 +151,7 @@ int main() {
                 }
             }
             /* currently disallow single player */
-            if (everyone_ready && player_count >= 1) {
+            if (everyone_ready && player_count > 1) {
                 printf("All players ready! Starting game...\n");
                 init_map_from_file(MAP_FILE_PATH);
                 
@@ -399,10 +399,7 @@ static void bomb_array_explode(BombArray *a, size_t i)
                 if (idx < 0)                                blocked_up = 1;
                 else if (GAME_MAP->cells[idx] == 'H')       blocked_up = 1;
                 else if (GAME_MAP->cells[idx] == 'S')       blocked_up = 1;
-                else if (GAME_MAP->cells[idx] == '@') {     
-                    printf("Chain reaction triggered at cell index %d!\n", idx);
-                    blocked_up = 1;
-                }
+                else if (GAME_MAP->cells[idx] == '@')       blocked_up = 1;
                 else if (GAME_MAP->cells[idx] == 'B') {
                     /* chain reaction, explode this bomb immediately -
                         could create a queue so nothing weird happens when bombs 
@@ -544,7 +541,7 @@ static void bomb_array_explode(BombArray *a, size_t i)
             else if (GAME_MAP->cells[idx] == '-' ||
                      GAME_MAP->cells[idx] == '<' ||
                      GAME_MAP->cells[idx] == '>')             { /* these are from a newer explosion */ }
-            else if (GAME_MAP->cells[idx] == '^')             { blocked_up = 1; /* newer explosion starts here */}
+            else if (GAME_MAP->cells[idx] == '^')             { blocked_down = 1; /* newer explosion starts here */}
             else                                               GAME_MAP->cells[idx] = '.';
         }
         /* LEFT */
@@ -556,7 +553,7 @@ static void bomb_array_explode(BombArray *a, size_t i)
             else if (GAME_MAP->cells[idx] == '|' ||
                      GAME_MAP->cells[idx] == '^' ||
                      GAME_MAP->cells[idx] == 'v')             { /* these are from a newer explosion */ }
-            else if (GAME_MAP->cells[idx] == '>')             { blocked_up = 1; /* newer explosion starts here */}
+            else if (GAME_MAP->cells[idx] == '>')             { blocked_left = 1; /* newer explosion starts here */}
             else                                               GAME_MAP->cells[idx] = '.';
         }
         /* RIGHT */
@@ -568,16 +565,16 @@ static void bomb_array_explode(BombArray *a, size_t i)
             else if (GAME_MAP->cells[idx] == '|' ||
                      GAME_MAP->cells[idx] == '^' ||
                      GAME_MAP->cells[idx] == 'v')             { /* these are from a newer explosion */ }
-            else if (GAME_MAP->cells[idx] == '<')             { blocked_up = 1; /* newer explosion starts here */}
+            else if (GAME_MAP->cells[idx] == '<')             { blocked_right = 1; /* newer explosion starts here */}
             else                                               GAME_MAP->cells[idx] = '.';
         }
     }
 
+    u_int8_t cur_radius = a->bombs[i].radius;
     bombs_active_for_player[a->bombs[i].owner_id - 1]--;
     a->bombs[i] = a->bombs[a->size - 1];
     a->size--;
-    
-    u_int8_t cur_radius = a->bombs[i].radius;
+
     BROADCAST_TO_EVERYONE(send_explosion_end(target_fd, TARGET_SERVER, TARGET_BROADCAST, &(msg_explosion_end_t){
         .cell_index = cell_index,
         .radius = cur_radius
@@ -754,7 +751,9 @@ static void handle_disconnect(int fd) {
             client_sockets[i] = 0;
             if (game_status == GAME_RUNNING) {
                 printf("Player %d (%s) has disconnected.\n", players[i].id, players[i].name);
-                BROADCAST_TO_EVERYONE(send_player_death(target_fd, TARGET_SERVER, TARGET_BROADCAST, &(msg_death_t){ .player_id = players[i].id }));
+                // BROADCAST_TO_EVERYONE(send_player_death(target_fd, TARGET_SERVER, TARGET_BROADCAST, &(msg_death_t){ .player_id = players[i].id }));
+                BROADCAST_TO_EVERYONE(send_player_dc(target_fd, TARGET_SERVER, TARGET_BROADCAST, &(msg_player_dc_t){ .player_id = players[i].id }));
+                printf("Sent player DC message for player %d\n", players[i].id);
                 uint16_t gi = make_cell_index(players[i].row, players[i].col, GAME_MAP->width);
                 GAME_MAP->cells[gi] = '.'; /* clear player from map */
             }
