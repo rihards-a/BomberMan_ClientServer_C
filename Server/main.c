@@ -906,6 +906,11 @@ static void dispatch(int fd, const msg_generic_t *header, const void *payload) {
             }
             break;
         }
+        case MSG_LEAVE: {
+            printf("Received LEAVE from client %d!\n", header->sender_id);
+            handle_disconnect(header->sender_id);
+            break;
+        }
     }
 }
 

@@ -615,6 +615,12 @@ static void handle_user_input(int ch) {
         }
         else if (ch == 'q' || ch == 'Q') {
             send_leave_message(CLIENT_FD, SELF_PLAYER.id, TARGET_SERVER);
+            clear();
+            refresh(); 
+            endwin();
+            free(GAME_MAP.cells);
+            free(OTHER_PLAYERS);
+            exit(0);
         }
         else if (ch == '1' || ch == '2' || ch == '3') {
             int n = snprintf(MAP_FILE_PATH, sizeof MAP_FILE_PATH, "maps/test_map_%c.txt", ch);
@@ -1047,7 +1053,7 @@ static void draw_game_board() {
         wattroff(SIDEBAR_WIN, A_BOLD);
 
         mvwaddstr(SIDEBAR_WIN, footer_start++, 2, "R            - Ready");
-        mvwaddstr(SIDEBAR_WIN, footer_start++, 2, "Ctrl+c       - Leave Game");
+        mvwaddstr(SIDEBAR_WIN, footer_start++, 2, "Q            - Leave Game");
         mvwaddstr(SIDEBAR_WIN, footer_start++, 2, "Arrow Keys   - Move");
         mvwaddstr(SIDEBAR_WIN, footer_start++, 2, "SPACE        - Place Bomb");
         mvwaddstr(SIDEBAR_WIN, footer_start++, 2, "[1|2|3]      - Choose Map");
